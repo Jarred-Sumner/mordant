@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use clippy_utils::visitors::for_each_expr;
 use rustc_hir::def_id::DefId;
 use rustc_hir::intravisit::FnKind;
-use rustc_hir::{Body, Expr, ExprKind, FnDecl, LangItem};
+use rustc_hir::{Body, Expr, ExprKind, FnDecl};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_span::Span;
 use rustc_span::def_id::LocalDefId;
@@ -11,6 +11,7 @@ use rustc_span::def_id::LocalDefId;
 use crate::MordantConfig;
 use crate::baseline::{emit, emit_with_note};
 use crate::hir_shapes::{callee_of, def_path_names};
+use crate::mir_flow::{assert_panics, mir_for};
 
 rustc_session::declare_lint! {
     /// Flags a function that can reach something the `forbidden-reach`
@@ -20,6 +21,16 @@ rustc_session::declare_lint! {
     /// Dynamic dispatch and function pointers are invisible to the walk, so
     /// absence of a finding proves nothing, but a finding is a concrete path
     /// that exists.
+    ///
+    /// The last arrow can also be a panic rustc lowers to a MIR `Assert`
+    /// rather than a call -- a bounds check, an arithmetic overflow, a
+    /// division or remainder by zero -- named by the `core::panicking`
+    /// function it invokes, so a ban on one of those catches the indexing or
+    /// the arithmetic that reaches it and not just an explicit `panic!`. Two
+    /// caveats ride on that: the overflow family exists only where
+    /// `-C overflow-checks` is on, so a release profile hides it; and the
+    /// walk still descends local callees only, so a panic reached through a
+    /// function in another crate is not seen.
     ///
     /// **One finding per (root, banned definition).** A root breaking two
     /// entries of its `never` list reports twice; several call paths to the
@@ -73,31 +84,6 @@ impl ForbiddenReach {
     }
 }
 
-/// The definition an `ExprKind::Index` reaches, for the same edge table a
-/// call or method call feeds.
-///
-/// `[]` on a type with a user `Index`/`IndexMut` impl is operator-overload
-/// resolution, recorded in `typeck_results` exactly like a method call --
-/// `type_dependent_def_id` is the same lookup `callee_of` makes for
-/// `ExprKind::MethodCall`, just on the index expression's `hir_id` instead of
-/// the method call's.
-///
-/// Built-in slice/array indexing is not overload resolution at all: rustc
-/// lowers it straight to a MIR place projection plus an `Assert(BoundsCheck)`
-/// terminator during MIR building, so `type_dependent_def_id` comes back
-/// `None` and there is no HIR call for a walk to have found in the first
-/// place. That `None` is the signal, not the absence of one: it is exactly
-/// the shape a caller cannot tell from "not an index at all" without also
-/// knowing `e.kind` was `Index`, which is why this only runs from that arm.
-/// Substitute the lang item behind that terminator, `core::panicking::
-/// panic_bounds_check`, as the edge instead.
-fn index_edge<'tcx>(cx: &LateContext<'tcx>, e: &Expr<'tcx>) -> Option<DefId> {
-    match cx.typeck_results().type_dependent_def_id(e.hir_id) {
-        Some(def) => Some(def),
-        None => cx.tcx.lang_items().get(LangItem::PanicBoundsCheck),
-    }
-}
-
 impl<'tcx> LateLintPass<'tcx> for ForbiddenReach {
     fn check_fn(
         &mut self,
@@ -117,12 +103,30 @@ impl<'tcx> LateLintPass<'tcx> for ForbiddenReach {
             if let Some(callee) = callee_of(cx, e) {
                 edges.push((callee.def(), e.span));
             } else if matches!(e.kind, ExprKind::Index(..))
-                && let Some(def) = index_edge(cx, e)
+                && let Some(def) = cx.typeck_results().type_dependent_def_id(e.hir_id)
             {
+                // `[]` on a type with a user `Index`/`IndexMut` impl is
+                // operator-overload resolution, recorded in `typeck_results`
+                // exactly like a method call -- the same lookup `callee_of`
+                // makes for `ExprKind::MethodCall`, which does not itself
+                // look at index expressions. Built-in slice and array
+                // indexing resolves to no impl and is not a call at all; its
+                // bounds check reaches the graph through the MIR walk below.
                 edges.push((def, e.span));
             }
             std::ops::ControlFlow::<()>::Continue(())
         });
+        // The panics rustc lowers to an `Assert` terminator during MIR
+        // building have no call in HIR at any spelling, so the walk above
+        // cannot see them however it is written. Read them off the body's own
+        // MIR, where each one names the lang item it invokes.
+        if let Some(mir) = mir_for(cx.tcx, def_id) {
+            for (item, at) in assert_panics(&mir) {
+                if let Some(def) = cx.tcx.lang_items().get(item) {
+                    edges.push((def, at));
+                }
+            }
+        }
         self.calls.insert(caller, edges);
 
         let names = def_path_names(cx, caller);

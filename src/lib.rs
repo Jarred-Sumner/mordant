@@ -398,6 +398,33 @@ fn ui() {
             [[mordant.forbidden-reach]]
             from = "index_root"
             never = ["panic_bounds_check"]
+
+            [[mordant.forbidden-reach]]
+            from = "add_overflow_root"
+            never = ["panic_const_add_overflow"]
+
+            [[mordant.forbidden-reach]]
+            from = "div_zero_root"
+            never = ["panic_const_div_by_zero"]
+
+            [[mordant.forbidden-reach]]
+            from = "rem_zero_root"
+            never = ["panic_const_rem_by_zero"]
+
+            [[mordant.forbidden-reach]]
+            from = "neg_overflow_root"
+            never = ["panic_const_neg_overflow"]
+
+            # The two controls: a live ban on a family their bodies do not
+            # reach, so a silent run here is the lint discriminating and not
+            # the rule failing to resolve.
+            [[mordant.forbidden-reach]]
+            from = "wrong_family_root"
+            never = ["panic_const_add_overflow"]
+
+            [[mordant.forbidden-reach]]
+            from = "no_assert_root"
+            never = ["panic_const_add_overflow"]
             "#,
         )
         .run();

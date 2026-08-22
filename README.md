@@ -101,7 +101,7 @@ The lints come in families, and each family is a lint group whose name is in its
 
 | lint                         | flags                                                                                                                                                                     |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `forbidden_reach`            | a config-declared ban ("from `sched::pick`, never reach `Vec::push`") violated by a concrete call path, printed as a witness chain                                        |
+| `forbidden_reach`            | a config-declared ban ("from `sched::pick`, never reach `Vec::push`") violated by a concrete path, printed as a witness chain; the last step may be a panic rustc lowers to a MIR assert, so indexing and arithmetic are bannable too |
 
 Each diagnostic says what is wrong at the place it points at, shows the other place that proves it when there is one, and ends with an edit that fixes it.
 
@@ -201,6 +201,16 @@ defaulted-failure-ignored-errors = ["my_jsc::JsError"]
 # Reachability bans. A finding prints the concrete call chain; dynamic
 # dispatch is invisible to the walk, so a clean run proves nothing, but every
 # finding is a path that exists.
+#
+# The last step of a chain can be a panic rustc lowers to a MIR `Assert`
+# rather than a call, so indexing and arithmetic are bannable by naming the
+# `core::panicking` function each one reaches: `panic_bounds_check`,
+# `panic_const_add_overflow` and its sub/mul/shl/shr/neg siblings,
+# `panic_const_div_by_zero`, `panic_const_rem_by_zero`. The overflow family
+# exists only where `-C overflow-checks` is on, so a release profile hides it;
+# the bounds and div/rem checks are always there. The walk descends callees in
+# the linted crate only, so a panic reached through another crate's function
+# is not seen.
 [[mordant.forbidden-reach]]
 from = "sched::pick"
 never = ["std::vec::Vec::push", "core::panicking"]

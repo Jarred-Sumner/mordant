@@ -1,7 +1,7 @@
 //! MIR machinery shared by the body-level analyses, with no opinion about
 //! what any of it means for a lint.
 //!
-//! It answers four questions about a body:
+//! It answers five questions about a body:
 //!
 //! * which MIR to read at all (`mir_for`: the pre-optimization body, so `?`
 //!   is still a `Try::branch` call and every aggregate is intact);
@@ -11,21 +11,26 @@
 //!   `post_dominators`, `control_deps`), over a CFG in which blocks that
 //!   cannot reach a `return` do not exist, so nothing is "decided" by an
 //!   `assert!`;
-//! * what a branch switches on (`switch_operand_atoms`).
+//! * what a branch switches on (`switch_operand_atoms`);
+//! * which panics the body reaches without calling anything (`assert_panics`).
 //!
 //! What the answers mean is the caller's business: `ctor_flow` combines them
 //! into "does a failure exit depend on a stored field", `unchecked_input_len`
-//! and `variant_flow` use only `mir_for` and trace the body their own way.
+//! and `variant_flow` use only `mir_for` and trace the body their own way,
+//! and `forbidden_reach` turns `assert_panics` into call-graph edges.
 
 use std::collections::{HashSet, VecDeque};
 
+use rustc_hir::LangItem;
 use rustc_hir::def_id::LocalDefId;
 use rustc_index::IndexVec;
 use rustc_index::bit_set::DenseBitSet;
 use rustc_middle::mir::{
-    BasicBlock, BasicBlockData, Body, Local, Place, ProjectionElem, TerminatorKind,
+    AssertKind, BasicBlock, BasicBlockData, Body, Local, Operand, Place, ProjectionElem,
+    TerminatorKind,
 };
 use rustc_middle::ty::TyCtxt;
+use rustc_span::Span;
 
 // ── MIR access ───────────────────────────────────────────────────────────────
 
@@ -58,6 +63,51 @@ impl<'tcx> std::ops::Deref for MirRef<'tcx> {
             MirRef::Opt(b) => b,
         }
     }
+}
+
+// ── panics with no call ──────────────────────────────────────────────────────
+
+/// The lang item rustc calls when `kind`'s assertion fires.
+///
+/// [`AssertKind::panic_function`] is this same mapping and is what codegen
+/// uses, so delegating to it keeps every kind in step with rustc as the enum
+/// grows. It `bug!`s on exactly two kinds, and deliberately: their panics take
+/// runtime arguments (the length and the index; the required and found
+/// alignment), so codegen names those lang items itself instead of asking.
+/// Naming them here is what makes this total, and calling `panic_function`
+/// bare would ICE on the commonest kind of all.
+fn assert_panic_lang_item(kind: &AssertKind<Operand<'_>>) -> LangItem {
+    match kind {
+        AssertKind::BoundsCheck { .. } => LangItem::PanicBoundsCheck,
+        AssertKind::MisalignedPointerDereference { .. } => {
+            LangItem::PanicMisalignedPointerDereference
+        }
+        other => other.panic_function(),
+    }
+}
+
+/// Every panic `body` reaches through an `Assert` terminator rather than a
+/// call, as the lang item it invokes and the span that provoked it.
+///
+/// These are the panics rustc lowers during MIR building -- a bounds check, an
+/// arithmetic overflow, a division or remainder by zero -- and there is no
+/// call in HIR for any of them, at any spelling, so a walk over expressions
+/// cannot see them however it is written.
+///
+/// **Not every one of these is present in every build.** The overflow kinds
+/// exist only where `-C overflow-checks` is on (the debug default, and what
+/// `#[rustc_inherit_overflow_checks]` propagates); division and remainder by
+/// zero and the bounds check are emitted unconditionally. So an absent
+/// overflow assert means the profile did not ask for one, not that the
+/// arithmetic cannot overflow.
+pub(crate) fn assert_panics<'a>(body: &'a Body<'_>) -> impl Iterator<Item = (LangItem, Span)> + 'a {
+    body.basic_blocks.iter().filter_map(|data| {
+        let term = data.terminator.as_ref()?;
+        let TerminatorKind::Assert { msg, .. } = &term.kind else {
+            return None;
+        };
+        Some((assert_panic_lang_item(msg), term.source_info.span))
+    })
 }
 
 // ── places as atoms ──────────────────────────────────────────────────────────
