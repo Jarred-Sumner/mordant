@@ -54,7 +54,14 @@ pub const GROUPS: &[(&str, &[&str])] = &[
             "return_wider_than_body",
         ],
     ),
-    ("duplication", &["same_match_twice", "reimplemented_helper"]),
+    (
+        "duplication",
+        &[
+            "same_match_twice",
+            "reimplemented_helper",
+            "generic_body_not_generic",
+        ],
+    ),
     (
         "naming",
         &[
@@ -106,7 +113,13 @@ mod tests {
     fn group_members_reads_only_the_group_spelling() {
         assert_eq!(
             group_members("group:duplication"),
-            Some(&["same_match_twice", "reimplemented_helper"][..])
+            Some(
+                &[
+                    "same_match_twice",
+                    "reimplemented_helper",
+                    "generic_body_not_generic",
+                ][..]
+            )
         );
         assert_eq!(group_members("group:nope"), None);
         assert_eq!(group_members("duplication"), None);

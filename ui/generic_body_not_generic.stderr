@@ -1,0 +1,81 @@
+warning: `checksum` is generic over `B`, but 43 of the 46 statements in its body (as MIR, before optimization) do not depend on it, and this crate instantiates it with 3 distinct sets of arguments, so that part is compiled 3 times over
+  --> $DIR/generic_body_not_generic.rs:11:1
+   |
+LL | pub fn checksum<B: AsRef<[u8]>>(bytes: B) -> u32 {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: one of the 3 instantiations, with B = &str
+  --> $DIR/generic_body_not_generic.rs:292:13
+   |
+LL |     let _ = checksum("abc");
+   |             ^^^^^^^^^^^^^^^
+   = help: move the part that does not depend on it into a non-generic inner fn and keep `checksum` as a thin generic shim that converts its arguments and calls it, so the body is compiled once
+   = note: `#[warn(generic_body_not_generic)]` on by default
+
+warning: `Framed::<T>::header_word` is generic over `T`, but 46 of the 46 statements in its body (as MIR, before optimization) do not depend on it, and this crate instantiates it with 2 distinct sets of arguments, so that part is compiled 2 times over
+  --> $DIR/generic_body_not_generic.rs:38:5
+   |
+LL |     pub fn header_word(&self) -> u32 {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: one of the 2 instantiations, with T = u8
+  --> $DIR/generic_body_not_generic.rs:297:13
+   |
+LL |     let _ = small.header_word() + wide.header_word();
+   |             ^^^^^^^^^^^^^^^^^^^
+   = help: move the part that does not depend on it into a non-generic inner fn and keep `Framed::<T>::header_word` as a thin generic shim that converts its arguments and calls it, so the body is compiled once
+
+warning: `fold_block` is generic over `N`, but 50 of the 53 statements in its body (as MIR, before optimization) do not depend on it, and this crate instantiates it with 2 distinct sets of arguments, so that part is compiled 2 times over
+  --> $DIR/generic_body_not_generic.rs:58:1
+   |
+LL | pub fn fold_block<const N: usize>(block: [u8; N]) -> u32 {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: one of the 2 instantiations, with N = 2
+  --> $DIR/generic_body_not_generic.rs:298:13
+   |
+LL |     let _ = fold_block([1u8, 2]);
+   |             ^^^^^^^^^^^^^^^^^^^^
+   = help: move the part that does not depend on it into a non-generic inner fn and keep `fold_block` as a thin generic shim that converts its arguments and calls it, so the body is compiled once
+
+warning: `digits` is generic over `S`, but 50 of the 53 statements in its body (as MIR, before optimization) do not depend on it, and this crate instantiates it with 2 distinct sets of arguments, so that part is compiled 2 times over
+  --> $DIR/generic_body_not_generic.rs:73:1
+   |
+LL | pub fn digits<S: AsRef<str>>(text: S) -> u32 {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: one of the 2 instantiations, with S = &str
+  --> $DIR/generic_body_not_generic.rs:95:5
+   |
+LL |     digits(text).wrapping_add(1)
+   |     ^^^^^^^^^^^^
+   = help: move the part that does not depend on it into a non-generic inner fn and keep `digits` as a thin generic shim that converts its arguments and calls it, so the body is compiled once
+
+warning: `<Sealed<T> as std::ops::Deref>::deref` is generic over `T`, but 54 of the 54 statements in its body (as MIR, before optimization) do not depend on it, and this crate instantiates it with 2 distinct sets of arguments, so that part is compiled 2 times over
+  --> $DIR/generic_body_not_generic.rs:197:5
+   |
+LL |     fn deref(&self) -> &u32 {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: one of the 2 instantiations, with T = &str
+  --> $DIR/generic_body_not_generic.rs:316:25
+   |
+LL |     let coerced: &u32 = &other;
+   |                         ^^^^^^
+   = help: move the part that does not depend on it into a non-generic inner fn and keep `<Sealed<T> as std::ops::Deref>::deref` as a thin generic shim that converts its arguments and calls it, so the body is compiled once
+
+warning: `<Ledger<T> as std::ops::Drop>::drop` is generic over `T`, but 55 of the 55 statements in its body (as MIR, before optimization) do not depend on it, and this crate instantiates it with 2 distinct sets of arguments, so that part is compiled 2 times over
+  --> $DIR/generic_body_not_generic.rs:229:5
+   |
+LL |     fn drop(&mut self) {
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+note: one of the 2 instantiations, with T = u8
+  --> $DIR/generic_body_not_generic.rs:318:9
+   |
+LL |     let _small_ledger = Ledger { tag: 1u8, counts: [1, 2, 3, 4, 5, 6], total: 0 };
+   |         ^^^^^^^^^^^^^
+   = help: move the part that does not depend on it into a non-generic inner fn and keep `<Ledger<T> as std::ops::Drop>::drop` as a thin generic shim that converts its arguments and calls it, so the body is compiled once
+
+warning: 6 warnings emitted
+

@@ -35,6 +35,7 @@ mod enum_facts;
 mod error_collapsed_to_bool;
 mod field_valid_only_when;
 mod forbidden_reach;
+mod generic_body_not_generic;
 mod guard_blind_to_action;
 mod hir_clone;
 mod hir_shapes;
@@ -180,9 +181,29 @@ pub struct MordantConfig {
     /// the check usually is meant to read as absent; the lint is a sweep for
     /// the places where a `.filter(..)` or a narrower type says so instead.
     pub some_still_unchecked_enabled: bool,
+    /// Opt-in: run `generic_body_not_generic`. Off by default because what
+    /// it counts — MIR statements that do not mention a type parameter, and
+    /// the concrete argument sets this crate instantiates — is exact, but
+    /// what it is for — bytes in the binary — depends on inlining, opt
+    /// level, LTO and symbol folding, none of which the source shows; run it
+    /// once over a size-sensitive crate and read the list.
+    pub generic_body_not_generic_enabled: bool,
     /// Functions a parameter group must pass between, unchanged, before
     /// `parallel_params` names it.
     pub parallel_params_min_fns: usize = 3,
+    /// MIR statements and terminators independent of every type and const
+    /// parameter that a generic body needs before `generic_body_not_generic`
+    /// names it, so a shim that only forwards never does. Storage markers
+    /// and plain jumps are not counted.
+    pub generic_body_not_generic_min_statements: usize = 24,
+    /// Share of the counted body, in percent, that must be parameter
+    /// independent: the lint fires when `independent * 100 >= total *
+    /// percent`.
+    pub generic_body_not_generic_min_share_percent: usize = 50,
+    /// Distinct concrete generic-argument sets this crate must instantiate
+    /// the fn at before its body counts as duplicated. One instantiation
+    /// duplicates nothing.
+    pub generic_body_not_generic_min_instantiations: usize = 2,
 }
 
 #[expect(clippy::no_mangle_with_rust_abi)]
@@ -213,10 +234,10 @@ fn register(config: &'static MordantConfig, s: &mut rustc_lint::LintStore) -> Ve
         defaulted_failure::DefaultedFailure, derived_field::DerivedField,
         discarded_error::DiscardedError, error_collapsed_to_bool::ErrorCollapsedToBool,
         field_valid_only_when::FieldValidOnlyWhen, forbidden_reach::ForbiddenReach,
-        guard_blind_to_action::GuardBlindToAction, index_of_other_kind::IndexOfOtherKind,
-        insert_then_unwrap::InsertThenUnwrap, interchangeable_aliases::InterchangeableAliases,
-        key_not_identity::KeyNotIdentity, lock_order::LockOrder,
-        narrowed_two_ways::NarrowedTwoWays, options_as_enum::OptionsAsEnum,
+        generic_body_not_generic::GenericBodyNotGeneric, guard_blind_to_action::GuardBlindToAction,
+        index_of_other_kind::IndexOfOtherKind, insert_then_unwrap::InsertThenUnwrap,
+        interchangeable_aliases::InterchangeableAliases, key_not_identity::KeyNotIdentity,
+        lock_order::LockOrder, narrowed_two_ways::NarrowedTwoWays, options_as_enum::OptionsAsEnum,
         parallel_bools::ParallelBools, parallel_params::ParallelParams,
         parallel_vecs::ParallelVecs, param_wider_than_callers::ParamWiderThanCallers,
         return_wider_than_body::ReturnWiderThanBody, runtime_typestate::RuntimeTypestate,
@@ -284,6 +305,9 @@ fn register(config: &'static MordantConfig, s: &mut rustc_lint::LintStore) -> Ve
     r.add(true, || InterchangeableAliases);
     r.add(config.some_still_unchecked_enabled, || {
         some_still_unchecked::SomeStillUnchecked
+    });
+    r.add(config.generic_body_not_generic_enabled, move || {
+        GenericBodyNotGeneric::new(config)
     });
     // Last, so its check_crate_post flushes after every lint has recorded.
     r.add(true, || BaselineWriter);
@@ -378,6 +402,7 @@ fn ui() {
             defaulted-failure-callees = ["from_str_radix", "listed_by_config"]
             defaulted-failure-ignored-errors = ["Pending"]
             bool-cluster-enabled = true
+            generic-body-not-generic-enabled = true
             stale-safety-comment-enabled = true
             unchecked-input-len-enabled = true
             parallel-params-enabled = true
@@ -457,6 +482,10 @@ fn config_default_thresholds_match_docs() {
     assert!(!c.parallel_params_enabled);
     assert!(!c.some_still_unchecked_enabled);
     assert_eq!(c.parallel_params_min_fns, 3);
+    assert_eq!(c.generic_body_not_generic_min_statements, 24);
+    assert_eq!(c.generic_body_not_generic_min_share_percent, 50);
+    assert_eq!(c.generic_body_not_generic_min_instantiations, 2);
+    assert!(!c.generic_body_not_generic_enabled);
 }
 
 /// An empty table (file present, keys omitted) must not drift from
@@ -567,7 +596,12 @@ fn disabled_expands_a_group_to_its_members() {
     let disabled = resolve_disabled(&names(&["group:duplication", "group:nope"]));
     assert_eq!(
         disabled,
-        ["same_match_twice", "reimplemented_helper", "group:nope"]
+        [
+            "same_match_twice",
+            "reimplemented_helper",
+            "generic_body_not_generic",
+            "group:nope"
+        ]
     );
     let (_, unknown) = registered_store(MordantConfig {
         disabled: names(&["group:duplication", "group:nope"]),

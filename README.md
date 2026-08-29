@@ -71,6 +71,7 @@ The lints come in families, and each family is a lint group whose name is in its
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `same_match_twice`           | the same `match` over one enum written out arm for arm in two places: a mapping the enum should state once as a method, kept in step by hand instead                      |
 | `reimplemented_helper`       | a function whose signature and body repeat another function in the crate under a different name: one helper written twice, so a fix to one copy misses the other          |
+| `generic_body_not_generic`   | opt-in via `generic-body-not-generic-enabled`: a generic fn whose body barely uses its type parameters, instantiated at several concrete types: one copy compiled per type, where a thin generic shim over a non-generic inner fn compiles the body once |
 
 ### Naming (`mordant_naming`)
 
@@ -154,21 +155,28 @@ bool-cluster-min-bools = 3
 derived-field-min-sites = 2
 reimplemented-helper-min-nodes = 12
 parallel-params-min-fns = 3
+generic-body-not-generic-min-statements = 24
+generic-body-not-generic-min-share-percent = 50
+generic-body-not-generic-min-instantiations = 2
 
 # Opt-in: also count `Box<dyn Error>` as a stringly error type.
 stringly-error-include-box-dyn = true
 
-# Opt-in: `bool_cluster`, `stale_safety_comment`, `unchecked_input_len` and
-# `parallel_params` are surveys to run once over a codebase (most of what they
-# name is legitimate once the real cases are fixed; for the third, a length the
-# caller vouches for that the function also uses as some other value's limit;
-# for the last, a buffer and a cursor into it, passed along together by
-# design), so they are off until turned on here.
+# Opt-in: `bool_cluster`, `stale_safety_comment`, `unchecked_input_len`,
+# `parallel_params` and `generic_body_not_generic` are surveys to run once over
+# a codebase (most of what they name is legitimate once the real cases are
+# fixed; for the third, a length the caller vouches for that the function also
+# uses as some other value's limit; for the fourth, a buffer and a cursor into
+# it, passed along together by design; for the last, the statement and
+# instantiation counts are exact, but the bytes they cost in the binary depend
+# on inlining, opt level and symbol folding, which the source cannot show), so
+# they are off until turned on here.
 bool-cluster-enabled = true
 stale-safety-comment-enabled = true
 unchecked-input-len-enabled = true
 parallel-params-enabled = true
 some-still-unchecked-enabled = true
+generic-body-not-generic-enabled = true
 
 # Opt-in: flag composite keys (tuples, structs one level deep) that carry a
 # denied type unless one of the fixing types sits beside it. With these two
