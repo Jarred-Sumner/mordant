@@ -204,7 +204,7 @@ warning: `drain` is generic over `S` and compiled 2 times in this crate, once pe
 LL | pub fn drain<S: Sink>(sink: &mut S, src: &[u8]) -> u32 {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `acc: u32`, `b: u8` and yields `acc: u32`; it sits inside a loop, so the call that replaces it runs once per iteration
+note: this stretch uses only `acc: u32`, `b: u8` and yields `acc: u32`; it is inside a loop, so the call that replaces it runs once per iteration
   --> $DIR/generic_body_not_generic.rs:415:17
    |
 LL |           let v = u32::from(b);

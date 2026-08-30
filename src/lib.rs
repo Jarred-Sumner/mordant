@@ -185,17 +185,19 @@ pub struct MordantConfig {
     /// Functions a parameter group must pass between, unchanged, before
     /// `parallel_params` names it.
     pub parallel_params_min_fns: usize = 3,
-    /// Counted MIR statements and terminators the extractable stretch of a
-    /// generic body — one single-entry, single-exit region that mentions no
-    /// type or const parameter and whose values in and out have parameter-
-    /// free types — needs before `generic_body_not_generic` names the fn,
-    /// so a shim that only forwards never does. Storage markers and plain
-    /// jumps are not counted. There is no share-of-the-body threshold beside
-    /// it: a region that passes is movable into a non-generic inner fn for
-    /// the price of one call whatever the rest of the body does, so a body
-    /// that is mostly about its parameters but still carries such a stretch
-    /// is as fixable as one that is barely about them, and a share gate
-    /// would only hide it.
+    /// The smallest number of statements the shared part of a generic fn's
+    /// body needs before `generic_body_not_generic` names the fn. The shared
+    /// part is one stretch of the body with a single entry and a single exit
+    /// that mentions no type or const parameter, and whose values in and out
+    /// have types free of those parameters. The count is of MIR statements
+    /// and terminators; storage markers and plain jumps are not counted, so
+    /// a fn that only forwards its arguments stays under it.
+    ///
+    /// There is no second threshold on how much of the body the stretch
+    /// covers. A stretch that passes can be moved into a non-generic inner
+    /// fn and replaced by one call, however large the rest of the body is.
+    /// A threshold on its share of the body would only stop the lint from
+    /// reporting fns that are just as easy to fix.
     pub generic_body_not_generic_min_statements: usize = 24,
     /// Distinct concrete generic-argument sets this crate must instantiate
     /// the fn at before its body counts as duplicated. One instantiation

@@ -53,8 +53,7 @@ use rustc_span::{Span, sym};
 
 use crate::adt_facts::{matches_config_path, result_err_ty};
 use crate::mir_flow::{
-    ANY_ELEM, Atom, Exactness, build_cfg, control_deps, direct_control_deps, mir_for, place_info,
-    post_dominators, switch_operand_atoms,
+    ANY_ELEM, Atom, Exactness, FlowGraph, mir_for, place_info, switch_operand_atoms,
 };
 
 /// Error types that report the environment refusing, not the value being
@@ -139,11 +138,10 @@ pub(crate) fn argument_decided_failure(
     if facts.failure_blocks.is_empty() {
         return None;
     }
-    let cfg = build_cfg(&body);
-    let pdom = post_dominators(&cfg);
+    let flow = FlowGraph::new(&body);
     let mut visited: HashSet<BasicBlock> = HashSet::new();
     for &fb in &facts.failure_blocks {
-        for branch in direct_control_deps(&cfg, &pdom, fb) {
+        for branch in flow.direct_control_deps(fb) {
             if !visited.insert(branch)
                 || decides_on_resource(tcx, &body, &facts, branch, extra_resource_errors)
             {
@@ -809,11 +807,10 @@ fn analyze_body<'tcx>(
             slices.push((f, s));
         }
         if !slices.is_empty() {
-            let cfg = build_cfg(&body);
-            let pdom = post_dominators(&cfg);
+            let flow = FlowGraph::new(&body);
             let mut switch_slices: HashMap<BasicBlock, Vec<Atom>> = HashMap::new();
             for &fb in &facts.failure_blocks {
-                for branch in control_deps(&cfg, &pdom, fb) {
+                for branch in flow.control_deps(fb) {
                     if decides_on_resource(tcx, &body, &facts, branch, extra_resource_errors) {
                         continue;
                     }

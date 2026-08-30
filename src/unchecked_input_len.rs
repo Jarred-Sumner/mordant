@@ -60,7 +60,7 @@ use rustc_span::symbol::kw;
 use rustc_span::{Span, Symbol};
 
 use crate::baseline::emit_with_note;
-use crate::mir_flow::mir_for;
+use crate::mir_flow::{local_name, mir_for};
 
 rustc_session::declare_lint! {
     /// Flags an integer that comes from the caller (a parameter other than
@@ -756,7 +756,7 @@ impl<'a, 'tcx> Analysis<'a, 'tcx> {
             if place.local == key.local {
                 break;
             }
-            if let Some(name) = self.user_name_of(place.local) {
+            if let Some(name) = local_name(self.body, place.local) {
                 let (read, _) = key_of(place);
                 return self.spell(name.to_string(), place.local, &read.path, 0);
             }
@@ -843,26 +843,6 @@ impl<'a, 'tcx> Analysis<'a, 'tcx> {
 /// The branches testing one seed: block, span, and whether the test is an
 /// ordering comparison rather than an equality.
 type Checks = Vec<(BasicBlock, Span, bool)>;
-
-impl<'tcx> Analysis<'_, 'tcx> {
-    /// The name the source gives a whole local, when it is one the user
-    /// wrote (a `?` desugaring names its payload `val`).
-    fn user_name_of(&self, local: Local) -> Option<Symbol> {
-        self.body
-            .var_debug_info
-            .iter()
-            .find_map(|info| match info.value {
-                VarDebugInfoContents::Place(p)
-                    if p.as_local() == Some(local)
-                        && info.composite.is_none()
-                        && !info.source_info.span.from_expansion() =>
-                {
-                    Some(info.name)
-                }
-                VarDebugInfoContents::Place(_) | VarDebugInfoContents::Const(_) => None,
-            })
-    }
-}
 
 struct Sink<'tcx> {
     block: BasicBlock,
