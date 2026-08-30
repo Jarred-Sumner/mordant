@@ -1,7 +1,7 @@
 //! MIR machinery shared by the body-level analyses, with no opinion about
 //! what any of it means for a lint.
 //!
-//! It answers five questions about a body:
+//! It answers six questions about a body:
 //!
 //! * which MIR to read at all (`mir_for`: the pre-optimization body, so `?`
 //!   is still a `Try::branch` call and every aggregate is intact);
@@ -12,22 +12,32 @@
 //!   cannot reach a `return` do not exist, so nothing is "decided" by an
 //!   `assert!`;
 //! * what a branch switches on (`switch_operand_atoms`);
-//! * which panics the body reaches without calling anything (`assert_panics`).
+//! * which panics the body reaches without calling anything (`assert_panics`);
+//! * how the blocks connect when nothing is pruned ([`FlowGraph`]): each
+//!   block's normal successors and predecessors, a virtual EXIT that every
+//!   `return` leads to and no panic does, dominators, post-dominators, which
+//!   blocks a branch decides, and whether one block can reach another -- the
+//!   substrate for carving a single-entry, single-exit run of blocks out of a
+//!   body.
 //!
 //! What the answers mean is the caller's business: `ctor_flow` combines them
 //! into "does a failure exit depend on a stored field", `unchecked_input_len`
 //! and `variant_flow` use only `mir_for` and trace the body their own way,
-//! and `forbidden_reach` turns `assert_panics` into call-graph edges.
+//! `forbidden_reach` turns `assert_panics` into call-graph edges, and
+//! `generic_body_not_generic` searches a `FlowGraph` for the stretch of a
+//! generic fn that could be a non-generic fn of its own.
 
 use std::collections::{HashSet, VecDeque};
 
+use rustc_data_structures::graph::dominators::{Dominators, dominators};
+use rustc_data_structures::graph::{DirectedGraph, Predecessors, StartNode, Successors};
 use rustc_hir::LangItem;
 use rustc_hir::def_id::LocalDefId;
-use rustc_index::IndexVec;
 use rustc_index::bit_set::DenseBitSet;
+use rustc_index::{IndexSlice, IndexVec};
 use rustc_middle::mir::{
     AssertKind, BasicBlock, BasicBlockData, Body, Local, Operand, Place, ProjectionElem,
-    TerminatorKind,
+    START_BLOCK, TerminatorKind,
 };
 use rustc_middle::ty::TyCtxt;
 use rustc_span::Span;
@@ -235,6 +245,15 @@ pub(crate) struct Cfg {
     exit: BasicBlock,
 }
 
+/// The block's terminator hands control back to the caller: a `return`, or
+/// the `become` that is a call and a return in one.
+fn leaves_fn(data: &BasicBlockData<'_>) -> bool {
+    matches!(
+        data.terminator.as_ref().map(|t| &t.kind),
+        Some(TerminatorKind::Return | TerminatorKind::TailCall { .. })
+    )
+}
+
 /// Normal (non-unwind) successors of a non-cleanup block; none otherwise.
 fn raw_successors(body: &Body<'_>, data: &BasicBlockData<'_>) -> Vec<BasicBlock> {
     let Some(term) = data.terminator.as_ref().filter(|_| !data.is_cleanup) else {
@@ -257,16 +276,8 @@ pub(crate) fn build_cfg(body: &Body<'_>) -> Cfg {
         .iter()
         .map(|data| raw_successors(body, data))
         .collect();
-    let mut can_return: IndexVec<BasicBlock, bool> = body
-        .basic_blocks
-        .iter()
-        .map(|data| {
-            matches!(
-                data.terminator.as_ref().map(|t| &t.kind),
-                Some(TerminatorKind::Return | TerminatorKind::TailCall { .. })
-            )
-        })
-        .collect();
+    let mut can_return: IndexVec<BasicBlock, bool> =
+        body.basic_blocks.iter().map(leaves_fn).collect();
     let mut changed = true;
     while changed {
         changed = false;
@@ -360,5 +371,264 @@ pub(crate) fn switch_operand_atoms(body: &Body<'_>, bb: BasicBlock) -> Vec<Atom>
             })
             .unwrap_or_default(),
         _ => Vec::new(),
+    }
+}
+
+// ── the unpruned flow graph ──────────────────────────────────────────────────
+//
+// `Cfg` is the graph for asking what decides whether a block runs, and there
+// a block that cannot reach a `return` is best treated as not existing. A
+// caller that wants to lift a run of blocks out of the body whole needs the
+// opposite reading of the same edges: a panicking arm inside the run is code
+// that moves with it, so it stays in the graph, with its predecessors, to be
+// vetted like any other block. What it must not be is a way *out* of the run.
+// So here a block that returns has the one successor EXIT, and a block that
+// diverges -- a call that never comes back, an `abort`, an `Unreachable` after
+// real statements -- has none: control that enters it leaves the fn from
+// there, which constrains nothing about where the run hands control back and
+// post-dominates nothing. It follows that a block from which no path returns
+// has no post-dominator at all, and a caller walking `ipdom_chain` from it
+// gets an empty chain. That loses the inside of a panic arm as a place to
+// start a region and nothing else; wiring the diverging blocks to EXIT instead
+// would make EXIT the nearest post-dominator of every block with a `panic!`
+// under it, and the chain would step over every region smaller than the rest
+// of the fn.
+//
+// Two kinds of block are left out of the graph altogether, edges and all.
+// Unwind cleanup, as everywhere in this module: a cleanup block only ever
+// leads to more cleanup, so dropping them changes no dominance between the
+// blocks that remain. And the empty `unreachable` block: every `match` on an
+// enum has an `otherwise` edge to one, and `SimplifyCfg` has already folded
+// all of a body's into a single shared block, so keeping it would hand every
+// `match` in the body a common successor whose other predecessors lie outside
+// any region one of them heads. It holds no code, and the edge to it is, like
+// an unwind edge, a way control provably does not go.
+//
+// Dominators and post-dominators both come from rustc's Lengauer-Tarjan
+// routine, run forwards from the entry block and backwards from EXIT over the
+// same pair of edge lists, so building the graph costs a few passes over the
+// edges and every dominance query after that is constant-time; `reaches` is
+// one breadth-first walk per call. Nothing here is quadratic in blocks, which
+// the bit-set fixpoint `post_dominators` runs over `Cfg` is -- harmless at the
+// sizes `ctor_flow` reads, and not something to run on a body of five
+// thousand blocks.
+
+/// The body's CFG over normal edges with nothing pruned, plus a virtual EXIT
+/// node one past the last block. The note above says what is a node and what
+/// is an edge; in short, a returning block's only successor is EXIT, a
+/// diverging block has none, and unwind cleanup and the shared empty
+/// `unreachable` block are not in the graph.
+pub(crate) struct FlowGraph {
+    /// Indexed by block and by EXIT. A block not in the graph has no edges
+    /// either way.
+    succs: IndexVec<BasicBlock, Vec<BasicBlock>>,
+    /// `succs` inverted, so `preds[exit]` is the returning blocks.
+    preds: IndexVec<BasicBlock, Vec<BasicBlock>>,
+    /// Blocks on the normal path, and EXIT.
+    nodes: Bits,
+    exit: BasicBlock,
+    dom: Dominators<BasicBlock>,
+    /// Dominators of the same edges reversed and rooted at EXIT, which is to
+    /// say post-dominators.
+    pdom: Dominators<BasicBlock>,
+}
+
+/// One direction of a [`FlowGraph`]'s edges and a root to walk them from:
+/// the shape rustc's dominator routine asks for. Forwards from the entry
+/// block it yields dominators; the same two lists swapped and rooted at EXIT
+/// yield post-dominators.
+struct Edges<'g> {
+    out: &'g IndexSlice<BasicBlock, Vec<BasicBlock>>,
+    into: &'g IndexSlice<BasicBlock, Vec<BasicBlock>>,
+    root: BasicBlock,
+}
+
+impl DirectedGraph for Edges<'_> {
+    type Node = BasicBlock;
+    fn num_nodes(&self) -> usize {
+        self.out.len()
+    }
+}
+
+impl StartNode for Edges<'_> {
+    fn start_node(&self) -> BasicBlock {
+        self.root
+    }
+}
+
+impl Successors for Edges<'_> {
+    fn successors(&self, node: BasicBlock) -> impl Iterator<Item = BasicBlock> {
+        self.out[node].iter().copied()
+    }
+}
+
+impl Predecessors for Edges<'_> {
+    fn predecessors(&self, node: BasicBlock) -> impl Iterator<Item = BasicBlock> {
+        self.into[node].iter().copied()
+    }
+}
+
+impl FlowGraph {
+    pub(crate) fn new(body: &Body<'_>) -> Self {
+        let exit = BasicBlock::from_usize(body.basic_blocks.len());
+        let size = exit.as_usize() + 1;
+        let mut nodes = Bits::new_empty(size);
+        for (b, data) in body.basic_blocks.iter_enumerated() {
+            let shared_unreachable = data.terminator.is_some() && data.is_empty_unreachable();
+            if !data.is_cleanup && !shared_unreachable {
+                nodes.insert(b);
+            }
+        }
+        nodes.insert(exit);
+        let mut succs: IndexVec<BasicBlock, Vec<BasicBlock>> =
+            IndexVec::from_elem_n(Vec::new(), size);
+        let mut preds: IndexVec<BasicBlock, Vec<BasicBlock>> =
+            IndexVec::from_elem_n(Vec::new(), size);
+        for (b, data) in body.basic_blocks.iter_enumerated() {
+            if !nodes.contains(b) {
+                continue;
+            }
+            let out = &mut succs[b];
+            if leaves_fn(data) {
+                out.push(exit);
+            } else {
+                out.extend(
+                    raw_successors(body, data)
+                        .into_iter()
+                        .filter(|s| nodes.contains(*s)),
+                );
+            }
+            for &s in out.iter() {
+                preds[s].push(b);
+            }
+        }
+        let dom = dominators(&Edges {
+            out: &succs,
+            into: &preds,
+            root: START_BLOCK,
+        });
+        let pdom = dominators(&Edges {
+            out: &preds,
+            into: &succs,
+            root: exit,
+        });
+        FlowGraph {
+            succs,
+            preds,
+            nodes,
+            exit,
+            dom,
+            pdom,
+        }
+    }
+
+    /// The virtual node every `return` leads to, one past the last block. It
+    /// indexes nothing in the body.
+    pub(crate) fn exit(&self) -> BasicBlock {
+        self.exit
+    }
+
+    /// `b` is a node: a block on the normal path (not unwind cleanup, not
+    /// the shared empty `unreachable`), or EXIT.
+    pub(crate) fn contains(&self, b: BasicBlock) -> bool {
+        self.nodes.contains(b)
+    }
+
+    /// Where control can go next from `b` without unwinding: blocks, or EXIT
+    /// alone when `b` returns. Empty for a diverging block, for EXIT, and for
+    /// a block not in the graph.
+    pub(crate) fn succs(&self, b: BasicBlock) -> &[BasicBlock] {
+        &self.succs[b]
+    }
+
+    /// The nodes `b` is a successor of; for EXIT, the returning blocks.
+    pub(crate) fn preds(&self, b: BasicBlock) -> &[BasicBlock] {
+        &self.preds[b]
+    }
+
+    /// `b`'s nearest strict dominator; `None` for the entry block and for a
+    /// node no path from it reaches.
+    pub(crate) fn idom(&self, b: BasicBlock) -> Option<BasicBlock> {
+        if self.nodes.contains(b) {
+            self.dom.immediate_dominator(b)
+        } else {
+            None
+        }
+    }
+
+    /// Some path of normal edges leads from `b` to a `return`.
+    pub(crate) fn can_return(&self, b: BasicBlock) -> bool {
+        self.nodes.contains(b) && self.pdom.is_reachable(b)
+    }
+
+    /// `b`'s nearest strict post-dominator: the first node every returning
+    /// path from `b` meets again. `None` for EXIT, for a block from which no
+    /// path returns, and for a block not in the graph.
+    pub(crate) fn ipdom(&self, b: BasicBlock) -> Option<BasicBlock> {
+        if self.nodes.contains(b) {
+            self.pdom.immediate_dominator(b)
+        } else {
+            None
+        }
+    }
+
+    /// `b`'s strict post-dominators nearest first, ending with EXIT; empty
+    /// exactly when `ipdom(b)` is `None`. At most one item per node.
+    pub(crate) fn ipdom_chain(&self, b: BasicBlock) -> impl Iterator<Item = BasicBlock> + '_ {
+        std::iter::successors(self.ipdom(b), |&x| self.ipdom(x))
+    }
+
+    /// The blocks whose running `b`'s terminator decides: those directly
+    /// control-dependent on `b`, which is every node from each successor of
+    /// `b` up the post-dominator tree to, and short of, `b`'s own nearest
+    /// post-dominator -- the arm a branch picks runs until the arms meet
+    /// again, and where they meet runs either way. In block order, each once;
+    /// EXIT is never among them. Empty for a block with one successor (that
+    /// successor is where its "arms" meet) and for a node not in the graph. A
+    /// successor from which no path returns is decided by `b` and, having no
+    /// post-dominator to climb to, ends its walk there; when `b` itself has
+    /// none, each arm is climbed as far as it goes. `b` is among its own when
+    /// an arm leads back round to it (a loop's test decides whether the test
+    /// runs again). What a block decided by `b` decides in turn is not
+    /// included: that closure is `control_deps`' reading over `Cfg`, and
+    /// here the caller's to take.
+    pub(crate) fn decides(&self, b: BasicBlock) -> Vec<BasicBlock> {
+        let succs = self.succs(b);
+        if succs.len() < 2 {
+            return Vec::new();
+        }
+        let join = self.ipdom(b);
+        let mut decided = Bits::new_empty(self.succs.len());
+        for &s in succs {
+            let mut node = Some(s);
+            while let Some(n) = node
+                && node != join
+                && n != self.exit
+                && decided.insert(n)
+            {
+                node = self.ipdom(n);
+            }
+        }
+        decided.iter().collect()
+    }
+
+    /// Some path of normal edges, possibly empty, leads from `from` to `to`
+    /// (either may be EXIT). One breadth-first walk, so a call costs at most a
+    /// pass over the edges reachable from `from`.
+    pub(crate) fn reaches(&self, from: BasicBlock, to: BasicBlock) -> bool {
+        let mut seen = Bits::new_empty(self.succs.len());
+        let mut queue = VecDeque::from([from]);
+        seen.insert(from);
+        while let Some(b) = queue.pop_front() {
+            if b == to {
+                return true;
+            }
+            for &s in &self.succs[b] {
+                if seen.insert(s) {
+                    queue.push_back(s);
+                }
+            }
+        }
+        false
     }
 }
