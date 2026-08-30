@@ -23,6 +23,7 @@ LL |     let _ = checksum("abc");
    = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `checksum` keeps its signature. The added cost is one call
    = help: `checksum` uses `bytes` only to get a `&[u8]` through `AsRef::as_ref`, so it could take `&[u8]` instead
    = note: `#[warn(generic_body_not_generic)]` on by default
+   = help: `cargo dylint --fix` moves them into a new function `checksum_shared` and calls it here. Rename it afterwards
 
 warning: `WithHeader::<T>::header_word` is generic over `T` and is compiled 2 times in this crate, but 44 of its 47 statements (as MIR, before optimization) are the same in every copy: they do not use `T`, control enters and leaves them at one point each, and every value they read or produce has a type without `T`
   --> $DIR/generic_body_not_generic.rs:30:5
@@ -48,6 +49,7 @@ note: one of the 2 argument sets: T = u8
 LL |     let _ = small.header_word() + wide.header_word();
    |             ^^^^^^^^^^^^^^^^^^^
    = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `WithHeader::<T>::header_word` keeps its signature. The added cost is one call
+   = help: `cargo dylint --fix` moves them into a new function `header_word_shared` and calls it here. Rename it afterwards
 
 warning: `fold_block` is generic over `N` and is compiled 2 times in this crate, but 56 of its 58 statements (as MIR, before optimization) are the same in every copy: they do not use `N`, control enters and leaves them at one point each, and every value they read or produce has a type without `N`
   --> $DIR/generic_body_not_generic.rs:49:1
@@ -73,6 +75,7 @@ note: one of the 2 argument sets: N = 2
 LL |     let _ = fold_block([1u8, 2]);
    |             ^^^^^^^^^^^^^^^^^^^^
    = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `fold_block` keeps its signature. The added cost is one call
+   = help: `cargo dylint --fix` moves them into a new function `fold_block_shared` and calls it here. Rename it afterwards
 
 warning: `digits` is generic over `S` and is compiled 2 times in this crate, but 50 of its 53 statements (as MIR, before optimization) are the same in every copy: they do not use `S`, control enters and leaves them at one point each, and every value they read or produce has a type without `S`
   --> $DIR/generic_body_not_generic.rs:65:1
@@ -99,6 +102,7 @@ LL |     digits(text).wrapping_add(1)
    = note: `digits` is `#[inline]`. Leave `#[inline]` off the separate function, or every codegen unit that calls it compiles its own copy and shares nothing
    = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `digits` keeps its signature. The added cost is one call
    = help: `digits` uses `text` only to get a `&str` through `AsRef::as_ref`, so it could take `&str` instead
+   = help: `cargo dylint --fix` moves them into a new function `digits_shared` and calls it here. Rename it afterwards
 
 warning: `tally` is generic over `X` and is compiled 3 times in this crate, but 41 of its 44 statements (as MIR, before optimization) are the same in every copy: they do not use `X`, control enters and leaves them at one point each, and every value they read or produce has a type without `X`
   --> $DIR/generic_body_not_generic.rs:116:1
@@ -124,6 +128,7 @@ LL |     let _ = tally(Ann) + tally(Bob) + tally(Cy);
    |             ^^^^^^^^^^
    = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `tally` keeps its signature. The added cost is one call
    = help: `tally` uses `x` only to get a `&str` through `HasName::name`, so it could take `&str` instead
+   = help: `cargo dylint --fix` moves them into a new function `tally_shared` and calls it here. Rename it afterwards
 
 warning: `wide_sum` is generic over `WIDE` and is compiled 2 times in this crate, but 41 of its 83 statements (as MIR, before optimization) are the same in every copy: they do not use `WIDE`, control enters and leaves them at one point each, and every value they read or produce has a type without `WIDE`
   --> $DIR/generic_body_not_generic.rs:134:1
@@ -149,6 +154,7 @@ note: one of the 2 argument sets: WIDE = true
 LL |     let _ = wide_sum::<true>(b"wide") + wide_sum::<false>(b"narrow");
    |             ^^^^^^^^^^^^^^^^^^^^^^^^^
    = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `wide_sum` keeps its signature. The added cost is one call
+   = help: `cargo dylint --fix` moves them into a new function `wide_sum_shared` and calls it here. Rename it afterwards
 
 warning: `stamp_tag` is generic over `TAG` and is compiled 2 times in this crate, but 130 of its 138 statements (as MIR, before optimization) are the same in every copy: they do not use `TAG`, control enters and leaves them at one point each, and every value they read or produce has a type without `TAG`
   --> $DIR/generic_body_not_generic.rs:255:1
@@ -246,6 +252,7 @@ LL |     let _ = strict_sum("s") + strict_sum([1u8, 0]);
    |             ^^^^^^^^^^^^^^^
    = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `strict_sum` keeps its signature. The added cost is one call
    = help: `strict_sum` uses `bytes` only to get a `&[u8]` through `AsRef::as_ref`, so it could take `&[u8]` instead
+   = help: `cargo dylint --fix` moves them into a new function `strict_sum_shared` and calls it here. Rename it afterwards
 
 warning: `lattice` is generic over `B` and is compiled 2 times in this crate, but 60 of its 63 statements (as MIR, before optimization) are the same in every copy: they do not use `B`, control enters and leaves them at one point each, and every value they read or produce has a type without `B`
   --> $DIR/generic_body_not_generic.rs:351:1
@@ -271,6 +278,7 @@ LL |     let _ = lattice("l") + lattice(vec![3u8]);
    |             ^^^^^^^^^^^^
    = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `lattice` keeps its signature. The added cost is one call
    = help: `lattice` uses `bytes` only to get a `&[u8]` through `AsRef::as_ref`, so it could take `&[u8]` instead
+   = help: `cargo dylint --fix` moves them into a new function `lattice_shared` and calls it here. Rename it afterwards
 
 warning: `<Sealed<T> as std::ops::Deref>::deref` is generic over `T` and is compiled 2 times in this crate, but 41 of its 50 statements (as MIR, before optimization) are the same in every copy: they do not use `T`, control enters and leaves them at one point each, and every value they read or produce has a type without `T`
   --> $DIR/generic_body_not_generic.rs:550:5
@@ -295,6 +303,7 @@ note: one of the 2 argument sets: T = &str
 LL |     let coerced: &u32 = &other;
    |                         ^^^^^^
    = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `<Sealed<T> as std::ops::Deref>::deref` keeps its signature. The added cost is one call
+   = help: `cargo dylint --fix` moves them into a new function `deref_shared` and calls it here. Rename it afterwards
 
 warning: `read_scanned` is generic over `W` and is compiled 2 times in this crate, but 37 of its 72 statements (as MIR, before optimization) are the same in every copy: they do not use `W`, control enters and leaves them at one point each, and every value they read or produce has a type without `W`
   --> $DIR/generic_body_not_generic.rs:661:1
@@ -320,6 +329,7 @@ note: one of the 2 argument sets: W = std::vec::Vec<u8>
 LL |         read_scanned(&mut v, &mut cur, 2);
    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `read_scanned` keeps its signature. The added cost is one call
+   = help: `cargo dylint --fix` moves them into a new function `read_scanned_shared` and calls it here. Rename it afterwards
 
 warning: `refill` is generic over `S` and is compiled 2 times in this crate, but 48 of its 67 statements (as MIR, before optimization) are the same in every copy: they do not use `S`, control enters and leaves them at one point each, and every value they read or produce has a type without `S`
   --> $DIR/generic_body_not_generic.rs:778:1
@@ -345,6 +355,7 @@ note: one of the 2 argument sets: S = Count
 LL |     refill(&mut count, &mut cur, 2);
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `refill` keeps its signature. The added cost is one call
+   = help: `cargo dylint --fix` moves them into a new function `refill_shared` and calls it here. Rename it afterwards
 
 warning: `refill_twice` is generic over `S` and is compiled 2 times in this crate, but 50 of its 70 statements (as MIR, before optimization) are the same in every copy: they do not use `S`, control enters and leaves them at one point each, and every value they read or produce has a type without `S`
   --> $DIR/generic_body_not_generic.rs:803:1
@@ -370,6 +381,7 @@ note: one of the 2 argument sets: S = Count
 LL |     refill_twice(&mut count, &mut cur, 2);
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `refill_twice` keeps its signature. The added cost is one call
+   = help: `cargo dylint --fix` moves them into a new function `refill_twice_shared` and calls it here. Rename it afterwards
 
 warning: `refill_total` is generic over `S` and is compiled 2 times in this crate, but 50 of its 69 statements (as MIR, before optimization) are the same in every copy: they do not use `S`, control enters and leaves them at one point each, and every value they read or produce has a type without `S`
   --> $DIR/generic_body_not_generic.rs:829:1
@@ -395,6 +407,7 @@ note: one of the 2 argument sets: S = Count
 LL |     let _ = refill_total(&mut count, &mut cur, 2) + refill_total(&mut last, &mut cur, 9);
    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `refill_total` keeps its signature. The added cost is one call
+   = help: `cargo dylint --fix` moves them into a new function `refill_total_shared` and calls it here. Rename it afterwards
 
 warning: `unlabel` is generic over `S` and is compiled 2 times in this crate, but 58 of its 77 statements (as MIR, before optimization) are the same in every copy: they do not use `S`, control enters and leaves them at one point each, and every value they read or produce has a type without `S`
   --> $DIR/generic_body_not_generic.rs:897:1
@@ -419,6 +432,7 @@ note: one of the 2 argument sets: S = Count
 LL |     let _ = unlabel(&mut count, 5, true) + unlabel(&mut last, 6, false);
    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `unlabel` keeps its signature. The added cost is one call
+   = help: `cargo dylint --fix` moves them into a new function `unlabel_shared` and calls it here. Rename it afterwards
 
 warning: `handoff` is generic over `S` and is compiled 2 times in this crate, but 41 of its 56 statements (as MIR, before optimization) are the same in every copy: they do not use `S`, control enters and leaves them at one point each, and every value they read or produce has a type without `S`
   --> $DIR/generic_body_not_generic.rs:918:1
@@ -444,6 +458,7 @@ note: one of the 2 argument sets: S = Count
 LL |     let _ = handoff(&mut count, 7) + handoff(&mut last, 8);
    |             ^^^^^^^^^^^^^^^^^^^^^^
    = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `handoff` keeps its signature. The added cost is one call
+   = help: `cargo dylint --fix` moves them into a new function `handoff_shared` and calls it here. Rename it afterwards
 
 warning: `trim_stamp` is generic over `E` and is compiled 2 times in this crate, but 87 of its 117 statements (as MIR, before optimization) are the same in every copy: they do not use `E`, control enters and leaves them at one point each, and every value they read or produce has a type without `E`
   --> $DIR/generic_body_not_generic.rs:1101:1
@@ -593,6 +608,7 @@ note: one of the 2 argument sets: T = u8
 LL |     let _small_ledger = Ledger { tag: 1u8, counts: [1, 2, 3, 4, 5, 6], total: 0 };
    |         ^^^^^^^^^^^^^
    = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `<Ledger<T> as std::ops::Drop>::drop` keeps its signature. The added cost is one call
+   = help: `cargo dylint --fix` moves them into a new function `drop_shared` and calls it here. Rename it afterwards
 
 warning: 24 warnings emitted
 

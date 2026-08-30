@@ -3,6 +3,7 @@
 
 use clippy_utils::source::snippet_opt;
 use rustc_data_structures::fx::FxHashMap;
+use rustc_errors::{Applicability, SuggestionStyle};
 use rustc_hir::attrs::InlineAttr;
 use rustc_hir::def_id::LocalDefId;
 use rustc_index::IndexVec;
@@ -19,6 +20,7 @@ use rustc_span::{Span, Symbol};
 
 use super::GENERIC_BODY_NOT_GENERIC;
 use super::classify::{PlaceParams, counted_statement, counted_terminator};
+use super::fix::Edit;
 use super::source_span::SourceSpan;
 use crate::baseline::{emit_hir_then, join};
 use crate::mir_flow::{local_name, reads_any};
@@ -473,7 +475,7 @@ fn part_note(part: &Finding, min_statements: usize) -> String {
 }
 
 /// Rendered strings only, so the MIR body's borrow ends early. `total` is
-/// the body's counted items.
+/// the body's counted items. `edit` is the machine-applicable extraction, when one is safe.
 pub(super) struct Finding {
     pub(super) def: LocalDefId,
     pub(super) site: Option<SourceSpan>,
@@ -484,6 +486,7 @@ pub(super) struct Finding {
     pub(super) other_parts: usize,
     pub(super) total: usize,
     pub(super) signature_help: Option<String>,
+    pub(super) edit: Option<Edit>,
 }
 
 /// Emits with the fn's HirId so an `#[allow]` on the fn is honoured: during
@@ -547,6 +550,14 @@ pub(super) fn report<'tcx>(
             diag.help(help);
             if let Some(signature_help) = signature_help {
                 diag.help(signature_help);
+            }
+            if let Some(edit) = &part.edit {
+                diag.multipart_suggestion_with_style(
+                    edit.help.clone(),
+                    edit.parts.clone(),
+                    Applicability::MachineApplicable,
+                    SuggestionStyle::HideCodeAlways,
+                );
             }
         },
     );

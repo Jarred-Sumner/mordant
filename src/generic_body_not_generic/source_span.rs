@@ -19,7 +19,7 @@ pub(super) enum SourceSpan {
 
 /// Moves one MIR item's span to its innermost macro call site inside
 /// `body_span`, in `body_span`'s context. A desugaring stays in place.
-fn body_position(mut span: Span, body_span: Span) -> Option<Span> {
+pub(super) fn body_position(mut span: Span, body_span: Span) -> Option<Span> {
     loop {
         let in_macro = span.from_expansion()
             && matches!(span.ctxt().outer_expn_data().kind, ExpnKind::Macro(..));

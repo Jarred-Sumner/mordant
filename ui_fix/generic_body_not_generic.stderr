@@ -1,0 +1,299 @@
+warning: `checksum` is generic over `T` and is compiled 2 times in this crate, but 38 of its 40 statements (as MIR, before optimization) are the same in every copy: they do not use `T`, control enters and leaves them at one point each, and every value they read or produce has a type without `T`
+  --> $DIR/generic_body_not_generic.rs:36:1
+   |
+LL | pub fn checksum<T: Tag>(tag: &T, src: &[u8]) -> u32 {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: these statements read only `src: &[u8]`, `salt: u32` and produce the returned `u32`
+  --> $DIR/generic_body_not_generic.rs:38:19
+   |
+LL |       let mut acc = (src.len() as u32) ^ salt;
+   |  ___________________^
+LL | |     let mut i = 0usize;
+LL | |     while i < src.len() {
+LL | |         acc = acc.wrapping_mul(31).wrapping_add(u32::from(src[i]));
+...  |
+LL | |     (acc ^ (src.len() as u32)).rotate_left(7)
+   | |_____________________________________________^
+note: one of the 2 argument sets: T = A
+  --> $DIR/generic_body_not_generic.rs:241:13
+   |
+LL |     let _ = checksum(&A, b"abc") ^ checksum(&B, &[1, 2, 3]);
+   |             ^^^^^^^^^^^^^^^^^^^^
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `checksum` keeps its signature. The added cost is one call
+   = note: `#[warn(generic_body_not_generic)]` on by default
+   = help: `cargo dylint --fix` moves them into a new function `checksum_shared` and calls it here. Rename it afterwards
+
+warning: `Packet::<T>::header_word` is generic over `T` and is compiled 2 times in this crate, but 30 of its 36 statements (as MIR, before optimization) are the same in every copy: they do not use `T`, control enters and leaves them at one point each, and every value they read or produce has a type without `T`
+  --> $DIR/generic_body_not_generic.rs:57:5
+   |
+LL |     pub fn header_word(&self) -> u32 {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: these statements read only `header: [u8; 4]`, `declared: u32` and produce `checked: u32`
+  --> $DIR/generic_body_not_generic.rs:60:24
+   |
+LL |           let mut word = 0u32;
+   |  ________________________^
+LL | |         let mut shift = 0u32;
+LL | |         let mut i = 0usize;
+LL | |         while i < 4 {
+...  |
+LL | |         let checked = (word ^ declared).rotate_left(declared & 31);
+   | |__________________________________________________________________^
+note: one of the 2 argument sets: T = u8
+  --> $DIR/generic_body_not_generic.rs:244:13
+   |
+LL |     let _ = small.header_word() ^ wide.header_word();
+   |             ^^^^^^^^^^^^^^^^^^^
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `Packet::<T>::header_word` keeps its signature. The added cost is one call
+   = help: `cargo dylint --fix` moves them into a new function `header_word_shared` and calls it here. Rename it afterwards
+
+warning: `split_sum` is generic over `T` and is compiled 2 times in this crate, but 37 of its 47 statements (as MIR, before optimization) are the same in every copy: they do not use `T`, control enters and leaves them at one point each, and every value they read or produce has a type without `T`
+  --> $DIR/generic_body_not_generic.rs:75:1
+   |
+LL | pub fn split_sum<T: Tag>(tag: T, len: usize) -> u32 {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: these statements read only `len: usize`, `seed: u32` and produce `lo: u32`, `hi: u32`
+  --> $DIR/generic_body_not_generic.rs:77:17
+   |
+LL |       let mut a = len as u32 ^ seed;
+   |  _________________^
+LL | |     let mut b = !a;
+LL | |     let mut i = 0usize;
+LL | |     while i < len {
+...  |
+LL | |     let lo = (a & 0xffff).rotate_left(1);
+LL | |     let hi = (b >> 16).wrapping_add(3);
+   | |______________________________________^
+note: one of the 2 argument sets: T = A
+  --> $DIR/generic_body_not_generic.rs:245:13
+   |
+LL |     let _ = split_sum(A, 4) ^ split_sum(B, 6);
+   |             ^^^^^^^^^^^^^^^
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `split_sum` keeps its signature. The added cost is one call
+   = help: `cargo dylint --fix` moves them into a new function `split_sum_shared` and calls it here. Rename it afterwards
+
+warning: `emit` is generic over `T` and is compiled 2 times in this crate, but 31 of its 38 statements (as MIR, before optimization) are the same in every copy: they do not use `T`, control enters and leaves them at one point each, and every value they read or produce has a type without `T`
+  --> $DIR/generic_body_not_generic.rs:92:1
+   |
+LL | pub fn emit<T: Tag>(tag: &T, len: usize, out: &mut u32) {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: these statements read only `len: usize`, `seed: u32` and produce `total: u32`
+  --> $DIR/generic_body_not_generic.rs:94:19
+   |
+LL |       let mut acc = len as u32 ^ seed;
+   |  ___________________^
+LL | |     let mut i = 0usize;
+LL | |     while i < len {
+LL | |         acc = acc.rotate_left(7).wrapping_add(i as u32);
+...  |
+LL | |     let total = (acc ^ len as u32).wrapping_mul(3);
+   | |__________________________________________________^
+note: one of the 2 argument sets: T = A
+  --> $DIR/generic_body_not_generic.rs:247:5
+   |
+LL |     emit(&A, 2, &mut word);
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `emit` keeps its signature. The added cost is one call
+   = help: `cargo dylint --fix` moves them into a new function `emit_shared` and calls it here. Rename it afterwards
+
+warning: `advance` is generic over `T` and is compiled 2 times in this crate, but 33 of its 38 statements (as MIR, before optimization) are the same in every copy: they do not use `T`, control enters and leaves them at one point each, and every value they read or produce has a type without `T`
+  --> $DIR/generic_body_not_generic.rs:113:1
+   |
+LL | pub fn advance<T: Tag>(tag: &T, cur: &mut Cursor, want: usize) -> u32 {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: these statements read only `cur: &mut Cursor`, `want: usize`, `salt: u32` and produce `total: u32`
+  --> $DIR/generic_body_not_generic.rs:115:17
+   |
+LL |       let start = cur.pos.min(8);
+   |  _________________^
+LL | |     let end = start.saturating_add(want).min(8);
+LL | |     let mut acc = cur.sum ^ salt;
+LL | |     let mut i = start;
+...  |
+LL | |     cur.sum = acc;
+LL | |     let total = acc.wrapping_mul(31);
+   | |____________________________________^
+note: one of the 2 argument sets: T = A
+  --> $DIR/generic_body_not_generic.rs:250:13
+   |
+LL |     let _ = advance(&A, &mut cur, 3) ^ advance(&B, &mut cur, 9);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `advance` keeps its signature. The added cost is one call
+   = help: `cargo dylint --fix` moves them into a new function `advance_shared` and calls it here. Rename it afterwards
+
+warning: `spread` is generic over `T` and is compiled 2 times in this crate, but 31 of its 33 statements (as MIR, before optimization) are the same in every copy: they do not use `T`, control enters and leaves them at one point each, and every value they read or produce has a type without `T`
+  --> $DIR/generic_body_not_generic.rs:130:1
+   |
+LL | pub const fn spread<T>(items: &[T], seed: u32) -> u32 {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: these statements read only `seed: u32`, `n: usize` and produce the returned `u32`
+  --> $DIR/generic_body_not_generic.rs:132:19
+   |
+LL |       let mut acc = seed ^ (n as u32);
+   |  ___________________^
+LL | |     let mut i = 0usize;
+LL | |     while i < n {
+LL | |         acc = acc.rotate_left(5).wrapping_add(i as u32);
+...  |
+LL | |     (acc ^ (n as u32)).wrapping_mul(31)
+   | |_______________________________________^
+note: one of the 2 argument sets: T = u8
+  --> $DIR/generic_body_not_generic.rs:251:13
+   |
+LL |     let _ = spread(&[1u8, 2, 3], 5) ^ spread(&["a", "b"], 7);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `spread` keeps its signature. The added cost is one call
+   = help: `cargo dylint --fix` moves them into a new function `spread_shared` and calls it here. Rename it afterwards
+
+warning: `Frame::stamp` is generic over `T` and is compiled 2 times in this crate, but 29 of its 34 statements (as MIR, before optimization) are the same in every copy: they do not use `T`, control enters and leaves them at one point each, and every value they read or produce has a type without `T`
+  --> $DIR/generic_body_not_generic.rs:149:5
+   |
+LL |     pub fn stamp<T: Tag>(&self, tag: &T) -> u32 {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: these statements read only `self: &Frame`, `salt: u32` and produce `total: u32`
+  --> $DIR/generic_body_not_generic.rs:151:23
+   |
+LL |           let mut acc = self.len ^ salt;
+   |  _______________________^
+LL | |         let mut i = 0u32;
+LL | |         while i < 8 {
+LL | |             acc = acc.rotate_left(u32::from(self.kind)).wrapping_add(i);
+...  |
+LL | |         let total = (acc ^ self.len).wrapping_mul(31);
+   | |_____________________________________________________^
+note: one of the 2 argument sets: T = A
+  --> $DIR/generic_body_not_generic.rs:253:13
+   |
+LL |     let _ = frame.stamp(&A) ^ frame.stamp(&B);
+   |             ^^^^^^^^^^^^^^^
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `Frame::stamp` keeps its signature. The added cost is one call
+
+warning: `mid_statement` is generic over `T` and is compiled 2 times in this crate, but 30 of its 36 statements (as MIR, before optimization) are the same in every copy: they do not use `T`, control enters and leaves them at one point each, and every value they read or produce has a type without `T`
+  --> $DIR/generic_body_not_generic.rs:165:1
+   |
+LL | pub fn mid_statement<T: Tag>(tag: T, len: usize) -> u32 {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: these statements read only `len: usize`, the `u32` from `tag.seed(13)` and produce `total: u32`
+  --> $DIR/generic_body_not_generic.rs:166:34
+   |
+LL |       let mut acc = tag.seed(13) ^ len as u32;
+   |  __________________________________^
+LL | |     let mut i = 0usize;
+LL | |     while i < len {
+LL | |         acc = acc.rotate_left(7).wrapping_add(i as u32);
+...  |
+LL | |     let total = (acc ^ len as u32).wrapping_mul(37);
+   | |___________________________________________________^
+note: one of the 2 argument sets: T = A
+  --> $DIR/generic_body_not_generic.rs:254:13
+   |
+LL |     let _ = mid_statement(A, 2) ^ mid_statement(B, 3);
+   |             ^^^^^^^^^^^^^^^^^^^
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `mid_statement` keeps its signature. The added cost is one call
+
+warning: `raw_sum` is generic over `T` and is compiled 2 times in this crate, but 31 of its 36 statements (as MIR, before optimization) are the same in every copy: they do not use `T`, control enters and leaves them at one point each, and every value they read or produce has a type without `T`
+  --> $DIR/generic_body_not_generic.rs:179:1
+   |
+LL | pub unsafe fn raw_sum<T: Tag>(tag: &T, len: usize) -> u32 {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: these statements read only `len: usize`, `seed: u32` and produce `total: u32`
+  --> $DIR/generic_body_not_generic.rs:181:19
+   |
+LL |       let mut acc = len as u32 ^ seed;
+   |  ___________________^
+LL | |     let mut i = 0usize;
+LL | |     while i < len {
+LL | |         acc = acc.rotate_left(5).wrapping_add(i as u32);
+...  |
+LL | |     let total = (acc ^ len as u32).wrapping_mul(41);
+   | |___________________________________________________^
+note: one of the 2 argument sets: T = A
+  --> $DIR/generic_body_not_generic.rs:255:22
+   |
+LL |     let _ = unsafe { raw_sum(&A, 3) ^ raw_sum(&B, 2) };
+   |                      ^^^^^^^^^^^^^^
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `raw_sum` keeps its signature. The added cost is one call
+
+warning: `gated` is generic over `T` and is compiled 2 times in this crate, but 31 of its 36 statements (as MIR, before optimization) are the same in every copy: they do not use `T`, control enters and leaves them at one point each, and every value they read or produce has a type without `T`
+  --> $DIR/generic_body_not_generic.rs:194:1
+   |
+LL | pub fn gated<T: Tag>(tag: &T, len: usize) -> u32 {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: these statements read only `len: usize`, `seed: u32` and produce `total: u32`
+  --> $DIR/generic_body_not_generic.rs:196:19
+   |
+LL |       let mut acc = len as u32 ^ seed;
+   |  ___________________^
+LL | |     let mut i = 0usize;
+LL | |     while i < len {
+LL | |         acc = acc.rotate_left(5).wrapping_add(i as u32);
+...  |
+LL | |     let total = (acc ^ len as u32).wrapping_mul(43);
+   | |___________________________________________________^
+note: one of the 2 argument sets: T = A
+  --> $DIR/generic_body_not_generic.rs:256:13
+   |
+LL |     let _ = gated(&A, 4) ^ gated(&B, 5);
+   |             ^^^^^^^^^^^^
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `gated` keeps its signature. The added cost is one call
+
+warning: `stepped` is generic over `T` and is compiled 2 times in this crate, but 31 of its 36 statements (as MIR, before optimization) are the same in every copy: they do not use `T`, control enters and leaves them at one point each, and every value they read or produce has a type without `T`
+  --> $DIR/generic_body_not_generic.rs:209:1
+   |
+LL | pub fn stepped<T: Tag>(tag: &T, len: usize) -> u32 {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: these statements read only `len: usize`, `seed: u32` and produce `total: u32`
+  --> $DIR/generic_body_not_generic.rs:212:19
+   |
+LL |       let mut acc = len as u32 ^ seed;
+   |  ___________________^
+LL | |     let mut i = 0usize;
+LL | |     while i < len {
+LL | |         acc = acc.rotate_left(STEP).wrapping_add(i as u32);
+...  |
+LL | |     let total = (acc ^ len as u32).wrapping_mul(STEP);
+   | |_____________________________________________________^
+note: one of the 2 argument sets: T = A
+  --> $DIR/generic_body_not_generic.rs:257:13
+   |
+LL |     let _ = stepped(&A, 6) ^ stepped(&B, 7);
+   |             ^^^^^^^^^^^^^^
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `stepped` keeps its signature. The added cost is one call
+
+warning: `try_sum` is generic over `T` and is compiled 2 times in this crate, but 34 of its 36 statements (as MIR, before optimization) are the same in every copy: they do not use `T`, control enters and leaves them at one point each, and every value they read or produce has a type without `T`
+  --> $DIR/generic_body_not_generic.rs:228:1
+   |
+LL | pub fn try_sum<T: Tag>(tag: &T, len: usize) -> Result<u32, u32> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: these statements read only `len: usize`, `seed: u32` and produce the returned `std::result::Result<u32, u32>`
+  --> $DIR/generic_body_not_generic.rs:230:19
+   |
+LL |       let mut acc = seed | 1;
+   |  ___________________^
+LL | |     let mut i = 0usize;
+LL | |     while i < len {
+LL | |         acc = step(acc ^ i as u32)?;
+...  |
+LL | |     Ok(acc.wrapping_add(len as u32))
+   | |____________________________________^
+note: one of the 2 argument sets: T = A
+  --> $DIR/generic_body_not_generic.rs:258:30
+   |
+LL |     if let (Ok(a), Ok(b)) = (try_sum(&A, 3), try_sum(&B, 2)) {
+   |                              ^^^^^^^^^^^^^^
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `try_sum` keeps its signature. The added cost is one call
+
+warning: 12 warnings emitted
+

@@ -460,6 +460,16 @@ fn ui_opt_in_lints_are_off_without_their_key() {
         .run();
 }
 
+/// The `ui_fix` fixtures start with `// run-rustfix`. compiletest applies each
+/// machine-applicable suggestion, compares the result with `.fixed`, and
+/// compiles that file.
+#[test]
+fn ui_fix() {
+    dylint_testing::ui::Test::src_base(env!("CARGO_PKG_NAME"), "ui_fix")
+        .dylint_toml("[mordant]\ngeneric-body-not-generic-min-statements = 16\n")
+        .run();
+}
+
 /// `config_or_default` returns `Default` when the linted workspace has no
 /// `dylint.toml`. A threshold that lost its `= N` would default to 0, which
 /// turns `wildcard_over_own_enum` off (`n > 0` for every enum) and makes

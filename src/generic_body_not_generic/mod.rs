@@ -4,6 +4,7 @@
 mod borrows;
 mod classify;
 mod describe;
+mod fix;
 mod instances;
 mod region;
 mod region_io;
@@ -44,6 +45,10 @@ rustc_session::declare_lint! {
     /// produces for later code has a type without parameters. Those values
     /// become the new function's arguments and results. The finding lists
     /// them, says when the part is in a loop, and points at one call site.
+    /// Some findings also have an edit that `cargo dylint --fix` applies.
+    /// It moves the part into a new `fn <name>_shared` after the enclosing
+    /// item and calls it in its place. The edit is given only when the part
+    /// is one run of whole statements that is certain to compile when moved.
     ///
     /// `generic-body-not-generic-min-statements` (default 24) is the
     /// smallest part reported, in hand-written statements. Code from a
@@ -121,9 +126,10 @@ impl<'tcx> LateLintPass<'tcx> for GenericBodyNotGeneric {
                 let part = best_shared_part(tcx, &body, &facts, self.min_statements)?;
                 let mut after = DenseBitSet::new_filled(body.basic_blocks.len());
                 after.subtract(&part.blocks);
+                let site = source_span(tcx, def, &body, &part.blocks);
                 Some(Finding {
                     def,
-                    site: source_span(tcx, def, &body, &part.blocks),
+                    site,
                     size: part.size,
                     reads: render_locals(cx, def, &body, &part.params, &part.blocks),
                     produces: render_locals(cx, def, &body, &part.returns, &after),
@@ -131,6 +137,7 @@ impl<'tcx> LateLintPass<'tcx> for GenericBodyNotGeneric {
                     other_parts: part.other_parts,
                     total,
                     signature_help: conversion_help(&body, &only_conversions(tcx, &body)),
+                    edit: fix::extraction_edit(cx, def, &body, &part, site),
                 })
             })
             .collect();
