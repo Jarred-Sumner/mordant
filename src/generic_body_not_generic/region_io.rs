@@ -273,12 +273,12 @@ pub(super) fn inner_signature<'tcx>(
 }
 
 /// What the blocks of a part do to each local they name.
-struct LocalUses {
+pub(super) struct LocalUses {
     /// Assigned, a call destination, mutably borrowed, or dropped. Not via deref.
     written: DenseBitSet<Local>,
     moved: DenseBitSet<Local>,
     /// Its own storage is borrowed (`&x`, `&mut x.f`), not its target (`&(*x).f`).
-    addressed: DenseBitSet<Local>,
+    pub(super) addressed: DenseBitSet<Local>,
     /// Not passable as `&`: `written`, `moved`, and `through` that `owns_pointee`.
     exclusive: DenseBitSet<Local>,
     through: DenseBitSet<Local>,
@@ -286,7 +286,7 @@ struct LocalUses {
 }
 
 impl LocalUses {
-    fn of<'tcx>(
+    pub(super) fn of<'tcx>(
         tcx: TyCtxt<'tcx>,
         body: &mir::Body<'tcx>,
         blocks: &DenseBitSet<BasicBlock>,
@@ -459,7 +459,74 @@ fn live_in(
     start
 }
 
-/// `each(i, state)` sees the set live just before statement `i`.
+/// The locals live at the start of `block`: the ones a later statement may still
+/// read along normal edges, as `LocalFacts::live` has them.
+pub(super) fn live_at_start(body: &mir::Body<'_>, block: BasicBlock) -> DenseBitSet<Local> {
+    let mut non_cleanup = DenseBitSet::new_empty(body.basic_blocks.len());
+    for (candidate, data) in body.basic_blocks.iter_enumerated() {
+        if !data.is_cleanup {
+            non_cleanup.insert(candidate);
+        }
+    }
+    let mut returned = DenseBitSet::new_empty(body.local_decls.len());
+    returned.insert(RETURN_PLACE);
+    live_in(body, &non_cleanup, &returned)
+        .remove(&block)
+        .unwrap_or_else(|| DenseBitSet::new_empty(body.local_decls.len()))
+}
+
+/// Whether `blocks` move out of, or drop, a part of `local` but not the whole
+/// (`let name = p.name;`), other than through a pointer it holds.
+pub(super) fn partly_moved(
+    body: &mir::Body<'_>,
+    blocks: &DenseBitSet<BasicBlock>,
+    local: Local,
+) -> bool {
+    struct PartMoves {
+        local: Local,
+        found: bool,
+    }
+    impl<'tcx> Visitor<'tcx> for PartMoves {
+        fn visit_place(&mut self, place: &Place<'tcx>, context: PlaceContext, _: Location) {
+            let takes = matches!(
+                context,
+                PlaceContext::NonMutatingUse(NonMutatingUseContext::Move)
+                    | PlaceContext::MutatingUse(MutatingUseContext::Drop)
+            );
+            self.found |= takes
+                && place.local == self.local
+                && !place.projection.is_empty()
+                && !place.is_indirect_first_projection();
+        }
+    }
+    let mut moves = PartMoves {
+        local,
+        found: false,
+    };
+    for block in blocks.iter() {
+        let data = &body.basic_blocks[block];
+        if data.is_cleanup {
+            continue;
+        }
+        for (index, statement) in data.statements.iter().enumerate() {
+            let at = Location {
+                block,
+                statement_index: index,
+            };
+            moves.visit_statement(statement, at);
+        }
+        if let Some(terminator) = &data.terminator {
+            let at = Location {
+                block,
+                statement_index: data.statements.len(),
+            };
+            moves.visit_terminator(terminator, at);
+        }
+    }
+    moves.found
+}
+
+/// Calls `each(i, state)` with the set of locals live just before statement `i`.
 pub(super) fn block_live(
     body: &mir::Body<'_>,
     block: BasicBlock,
@@ -467,6 +534,27 @@ pub(super) fn block_live(
     boundary: &DenseBitSet<Local>,
     state: &mut DenseBitSet<Local>,
     mut each: impl FnMut(usize, &DenseBitSet<Local>),
+) {
+    live_after_statements(body, block, live_at, boundary, state);
+    let data = &body.basic_blocks[block];
+    each(data.statements.len(), state);
+    for (index, statement) in data.statements.iter().enumerate().rev() {
+        let at = Location {
+            block,
+            statement_index: index,
+        };
+        MaybeLiveLocals::transfer_function(state).visit_statement(statement, at);
+        each(index, state);
+    }
+}
+
+/// Sets `state` to the locals live after the last statement of `block`.
+fn live_after_statements(
+    body: &mir::Body<'_>,
+    block: BasicBlock,
+    live_at: &FxHashMap<BasicBlock, DenseBitSet<Local>>,
+    boundary: &DenseBitSet<Local>,
+    state: &mut DenseBitSet<Local>,
 ) {
     let data = &body.basic_blocks[block];
     state.clear();
@@ -501,20 +589,11 @@ pub(super) fn block_live(
             MaybeLiveLocals::transfer_function(state).visit_terminator(terminator, at);
         }
     }
-    each(data.statements.len(), state);
-    for (index, statement) in data.statements.iter().enumerate().rev() {
-        let at = Location {
-            block,
-            statement_index: index,
-        };
-        MaybeLiveLocals::transfer_function(state).visit_statement(statement, at);
-        each(index, state);
-    }
 }
 
 /// Whether `from` or a block after it reads `local`, other than its `Drop`
 /// and the `Discriminant` read that starts an enum's drop.
-fn read_after(body: &mir::Body<'_>, from: BasicBlock, local: Local) -> bool {
+pub(super) fn read_after(body: &mir::Body<'_>, from: BasicBlock, local: Local) -> bool {
     let mut of = DenseBitSet::new_empty(body.local_decls.len());
     of.insert(local);
     let mut seen = DenseBitSet::new_empty(body.basic_blocks.len());

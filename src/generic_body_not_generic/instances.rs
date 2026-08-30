@@ -89,7 +89,7 @@ impl<'tcx> InstantiationCounts<'tcx> {
 }
 
 /// The local generic fn whose body is compiled for this use, and the
-/// arguments that body sees. `dyn`, closure shims and foreign fns give `None`.
+/// arguments as that body writes them. `dyn`, closure shims and foreign fns give `None`.
 fn resolve<'tcx>(
     tcx: TyCtxt<'tcx>,
     callee: DefId,

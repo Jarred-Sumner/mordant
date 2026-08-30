@@ -173,6 +173,30 @@ fn can_store_held_reference<T>(
     operands.any(|(holds, operand)| holding > usize::from(holds) && storable(operand))
 }
 
+/// The strongest reference a piece of MIR holds into the locals of interest.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Held {
+    Nothing,
+    Shared,
+    Exclusive,
+}
+
+impl Held {
+    fn of(holds: bool, exclusive: bool) -> Self {
+        match (holds, exclusive) {
+            (_, true) => Held::Exclusive,
+            (true, false) => Held::Shared,
+            (false, false) => Held::Nothing,
+        }
+    }
+    fn holds(self) -> bool {
+        self != Held::Nothing
+    }
+    fn exclusive(self) -> bool {
+        self == Held::Exclusive
+    }
+}
+
 /// Answers whether one piece of MIR produces a reference into a local in
 /// `of`, or reads a local in `found`, and whether exclusively.
 struct ReadsBorrow<'a, 'mir, 'tcx> {
@@ -180,8 +204,7 @@ struct ReadsBorrow<'a, 'mir, 'tcx> {
     body: &'mir mir::Body<'tcx>,
     of: &'a DenseBitSet<Local>,
     found: &'a BorrowHolders,
-    holds: bool,
-    exclusive: bool,
+    held: Held,
 }
 
 impl<'a, 'mir, 'tcx> ReadsBorrow<'a, 'mir, 'tcx> {
@@ -191,17 +214,16 @@ impl<'a, 'mir, 'tcx> ReadsBorrow<'a, 'mir, 'tcx> {
         of: &'a DenseBitSet<Local>,
         found: &'a BorrowHolders,
         visit: impl FnOnce(&mut Self),
-    ) -> (bool, bool) {
+    ) -> Held {
         let mut visitor = ReadsBorrow {
             tcx,
             body,
             of,
             found,
-            holds: false,
-            exclusive: false,
+            held: Held::Nothing,
         };
         visit(&mut visitor);
-        (visitor.holds, visitor.exclusive)
+        visitor.held
     }
 }
 
@@ -228,19 +250,20 @@ impl<'tcx> Visitor<'tcx> for ReadsBorrow<'_, '_, 'tcx> {
                 }
                 _ => (false, false),
             };
-            self.holds |= holds;
-            self.exclusive |= exclusive;
+            self.held = self.held.max(Held::of(holds, exclusive));
         }
         if exclusive_borrow && place.is_indirect() && self.found.any.contains(place.local) {
-            self.holds = true;
-            self.exclusive = true;
+            self.held = Held::Exclusive;
         }
         self.super_place(place, context, location);
     }
 
     fn visit_local(&mut self, local: Local, _: PlaceContext, _: Location) {
-        self.holds |= self.found.any.contains(local);
-        self.exclusive |= self.found.exclusive.contains(local);
+        let found = Held::of(
+            self.found.any.contains(local),
+            self.found.exclusive.contains(local),
+        );
+        self.held = self.held.max(found);
     }
 }
 
@@ -275,9 +298,10 @@ pub(super) fn borrow_holders<'tcx>(
                 match &statement.kind {
                     StatementKind::Assign(assign) => {
                         let (dest, rvalue) = &**assign;
-                        let (holds, exclusive) = ReadsBorrow::of(tcx, body, of, &found, |p| {
+                        let held = ReadsBorrow::of(tcx, body, of, &found, |p| {
                             p.visit_rvalue(rvalue, Location::START);
                         });
+                        let (holds, exclusive) = (held.holds(), held.exclusive());
                         // `Both { r: &x, v: &mut v }` reaches a call as one argument.
                         let built = match rvalue {
                             Rvalue::Aggregate(_, operands) if holds && operands.len() > 1 => {
@@ -287,7 +311,7 @@ pub(super) fn borrow_holders<'tcx>(
                                         ReadsBorrow::of(tcx, body, of, &found, |p| {
                                             p.visit_operand(operand, Location::START);
                                         })
-                                        .0
+                                        .holds()
                                     })
                                     .collect();
                                 can_store_held_reference(
@@ -317,11 +341,11 @@ pub(super) fn borrow_holders<'tcx>(
                         }
                     }
                     StatementKind::Intrinsic(_) => {
-                        let (holds, exclusive) = ReadsBorrow::of(tcx, body, of, &found, |p| {
+                        let held = ReadsBorrow::of(tcx, body, of, &found, |p| {
                             p.visit_statement(statement, Location::START);
                         });
-                        if holds {
-                            found.escape(exclusive);
+                        if held.holds() {
+                            found.escape(held.exclusive());
                         }
                     }
                     _ => {}
@@ -343,17 +367,16 @@ pub(super) fn borrow_holders<'tcx>(
                         })
                     };
                     let by_func = reads(func);
-                    let by_arg: Vec<(bool, bool)> =
-                        args.iter().map(|arg| reads(&arg.node)).collect();
-                    let holds = by_arg.iter().any(|&(holds, _)| holds);
-                    let exclusive = by_arg.iter().any(|&(_, exclusive)| exclusive);
-                    if by_func.0 {
-                        found.escape(by_func.1);
+                    let by_arg: Vec<Held> = args.iter().map(|arg| reads(&arg.node)).collect();
+                    let holds = by_arg.iter().any(|held| held.holds());
+                    let exclusive = by_arg.iter().any(|held| held.exclusive());
+                    if by_func.holds() {
+                        found.escape(by_func.exclusive());
                     }
                     if !holds {
                         continue;
                     }
-                    let arg_holds = by_arg.iter().map(|&(holds, _)| holds);
+                    let arg_holds = by_arg.iter().map(|held| held.holds());
                     let can_store =
                         can_store_held_reference(arg_holds.zip(args), |arg| storable(&arg.node));
                     if can_store || destination.is_indirect() {
@@ -369,11 +392,11 @@ pub(super) fn borrow_holders<'tcx>(
                 TerminatorKind::TailCall { .. }
                 | TerminatorKind::InlineAsm { .. }
                 | TerminatorKind::Yield { .. } => {
-                    let (holds, exclusive) = ReadsBorrow::of(tcx, body, of, &found, |p| {
+                    let held = ReadsBorrow::of(tcx, body, of, &found, |p| {
                         p.visit_terminator(terminator, Location::START);
                     });
-                    if holds {
-                        found.escape(exclusive);
+                    if held.holds() {
+                        found.escape(held.exclusive());
                     }
                 }
                 _ => {}
