@@ -71,7 +71,7 @@ The lints come in families, and each family is a lint group whose name is in its
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `same_match_twice`           | the same `match` over one enum written out arm for arm in two places: a mapping the enum should state once as a method, kept in step by hand instead                      |
 | `reimplemented_helper`       | a function whose signature and body repeat another function in the crate under a different name: one helper written twice, so a fix to one copy misses the other          |
-| `generic_body_not_generic`   | a stretch of a generic fn, entered once and left once, that mentions none of its type or const parameters and takes and yields only values of parameter-free types, in a fn this crate instantiates at several concrete argument sets: compiled once per set, where moving that stretch into a non-generic inner fn compiles it once for the price of one call and leaves the signature alone; the finding names the stretch, what it takes and what it yields |
+| `generic_body_not_generic`   | statements in a generic fn that are the same in every compiled copy. They do not use its type or const parameters. Control enters and leaves them at one point each. Every value they read or produce has a type without those parameters. Reported when this crate compiles the fn for several argument sets. Moving the statements into a separate non-generic fn compiles them once, costs one call, and keeps the signature |
 
 ### Naming (`mordant_naming`)
 

@@ -1,11 +1,11 @@
-warning: `checksum` is generic over `B` and compiled 3 times in this crate, once per distinct set of arguments, but 43 of the 46 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `B`, control enters it once and leaves it once, and the values it uses and yields have types free of `B`
-  --> $DIR/generic_body_not_generic.rs:38:1
+warning: `checksum` is generic over `B` and is compiled 3 times in this crate, but 43 of its 46 statements (as MIR, before optimization) are the same in every copy: they do not use `B`, control enters and leaves them at one point each, and every value they read or produce has a type without `B`
+  --> $DIR/generic_body_not_generic.rs:5:1
    |
 LL | pub fn checksum<B: AsRef<[u8]>>(bytes: B) -> u32 {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `src: &[u8]` and yields the returned `u32`
-  --> $DIR/generic_body_not_generic.rs:40:19
+note: these statements read only `src: &[u8]` and produce the returned `u32`
+  --> $DIR/generic_body_not_generic.rs:7:19
    |
 LL |       let mut acc = 17u32;
    |  ___________________^
@@ -15,23 +15,23 @@ LL | |         let v = u32::from(*byte);
 ...  |
 LL | |     (acc ^ (src.len() as u32)).rotate_left(7)
    | |_____________________________________________^
-note: one of the 3 instantiations, with B = &str
-  --> $DIR/generic_body_not_generic.rs:1701:13
+note: one of the 3 argument sets: B = &str
+  --> $DIR/generic_body_not_generic.rs:1379:13
    |
 LL |     let _ = checksum("abc");
    |             ^^^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `checksum` keeps its signature and the cost is one call
-   = help: `checksum` only uses `bytes` to obtain a `&[u8]` through `AsRef::as_ref`; it could take `&[u8]` instead
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `checksum` keeps its signature. The added cost is one call
+   = help: `checksum` uses `bytes` only to get a `&[u8]` through `AsRef::as_ref`, so it could take `&[u8]` instead
    = note: `#[warn(generic_body_not_generic)]` on by default
 
-warning: `Framed::<T>::header_word` is generic over `T` and compiled 2 times in this crate, once per distinct set of arguments, but 44 of the 47 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `T`, control enters it once and leaves it once, and the values it uses and yields have types free of `T`
-  --> $DIR/generic_body_not_generic.rs:70:5
+warning: `WithHeader::<T>::header_word` is generic over `T` and is compiled 2 times in this crate, but 44 of its 47 statements (as MIR, before optimization) are the same in every copy: they do not use `T`, control enters and leaves them at one point each, and every value they read or produce has a type without `T`
+  --> $DIR/generic_body_not_generic.rs:30:5
    |
 LL |     pub fn header_word(&self) -> u32 {
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `header: [u8; 4]`, `declared: u32` and yields the returned `u32`
-  --> $DIR/generic_body_not_generic.rs:73:24
+note: these statements read only `header: [u8; 4]`, `declared: u32` and produce the returned `u32`
+  --> $DIR/generic_body_not_generic.rs:33:24
    |
 LL |           let mut word = 0u32;
    |  ________________________^
@@ -42,21 +42,21 @@ LL | |             word |= u32::from(b) << shift;
 LL | |         } else {
 LL | |             padded.wrapping_sub(word).wrapping_mul(3)
    | |_____________________________________________________^
-note: one of the 2 instantiations, with T = u8
-  --> $DIR/generic_body_not_generic.rs:1706:13
+note: one of the 2 argument sets: T = u8
+  --> $DIR/generic_body_not_generic.rs:1384:13
    |
 LL |     let _ = small.header_word() + wide.header_word();
    |             ^^^^^^^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `Framed::<T>::header_word` keeps its signature and the cost is one call
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `WithHeader::<T>::header_word` keeps its signature. The added cost is one call
 
-warning: `fold_block` is generic over `N` and compiled 2 times in this crate, once per distinct set of arguments, but 56 of the 58 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `N`, control enters it once and leaves it once, and the values it uses and yields have types free of `N`
-  --> $DIR/generic_body_not_generic.rs:94:1
+warning: `fold_block` is generic over `N` and is compiled 2 times in this crate, but 56 of its 58 statements (as MIR, before optimization) are the same in every copy: they do not use `N`, control enters and leaves them at one point each, and every value they read or produce has a type without `N`
+  --> $DIR/generic_body_not_generic.rs:49:1
    |
 LL | pub fn fold_block<const N: usize>(block: [u8; N]) -> u32 {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `bytes: &[u8]` and yields the returned `u32`
-  --> $DIR/generic_body_not_generic.rs:96:18
+note: these statements read only `bytes: &[u8]` and produce the returned `u32`
+  --> $DIR/generic_body_not_generic.rs:51:18
    |
 LL |       let mut lo = 1u32;
    |  __________________^
@@ -67,21 +67,21 @@ LL | |     while i < bytes.len() {
 LL | |     let folded = (hi << 16) | lo;
 LL | |     if folded % 2 == 0 { folded / 2 } else { folded.wrapping_mul(3) + 1 }
    | |_______________________________________________________________________^
-note: one of the 2 instantiations, with N = 2
-  --> $DIR/generic_body_not_generic.rs:1707:13
+note: one of the 2 argument sets: N = 2
+  --> $DIR/generic_body_not_generic.rs:1385:13
    |
 LL |     let _ = fold_block([1u8, 2]);
    |             ^^^^^^^^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `fold_block` keeps its signature and the cost is one call
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `fold_block` keeps its signature. The added cost is one call
 
-warning: `digits` is generic over `S` and compiled 2 times in this crate, once per distinct set of arguments, but 50 of the 53 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `S`, control enters it once and leaves it once, and the values it uses and yields have types free of `S`
-  --> $DIR/generic_body_not_generic.rs:114:1
+warning: `digits` is generic over `S` and is compiled 2 times in this crate, but 50 of its 53 statements (as MIR, before optimization) are the same in every copy: they do not use `S`, control enters and leaves them at one point each, and every value they read or produce has a type without `S`
+  --> $DIR/generic_body_not_generic.rs:65:1
    |
 LL | pub fn digits<S: AsRef<str>>(text: S) -> u32 {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `s: &str` and yields the returned `u32`
-  --> $DIR/generic_body_not_generic.rs:116:21
+note: these statements read only `s: &str` and produce the returned `u32`
+  --> $DIR/generic_body_not_generic.rs:67:21
    |
 LL |       let mut total = 0u32;
    |  _____________________^
@@ -91,23 +91,23 @@ LL | |     for ch in s.bytes() {
 ...  |
 LL | |     (total ^ weight.rotate_right(5)).wrapping_add(groups)
    | |_________________________________________________________^
-note: one of the 2 instantiations, with S = &str
-  --> $DIR/generic_body_not_generic.rs:136:5
+note: one of the 2 argument sets: S = &str
+  --> $DIR/generic_body_not_generic.rs:86:5
    |
 LL |     digits(text).wrapping_add(1)
    |     ^^^^^^^^^^^^
-   = note: `digits` is `#[inline]`; leave the inner fn without it, or every codegen unit that calls it compiles its own copy again and nothing is shared
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `digits` keeps its signature and the cost is one call
-   = help: `digits` only uses `text` to obtain a `&str` through `AsRef::as_ref`; it could take `&str` instead
+   = note: `digits` is `#[inline]`. Leave `#[inline]` off the separate function, or every codegen unit that calls it compiles its own copy and shares nothing
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `digits` keeps its signature. The added cost is one call
+   = help: `digits` uses `text` only to get a `&str` through `AsRef::as_ref`, so it could take `&str` instead
 
-warning: `tally` is generic over `X` and compiled 3 times in this crate, once per distinct set of arguments, but 41 of the 44 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `X`, control enters it once and leaves it once, and the values it uses and yields have types free of `X`
-  --> $DIR/generic_body_not_generic.rs:170:1
+warning: `tally` is generic over `X` and is compiled 3 times in this crate, but 41 of its 44 statements (as MIR, before optimization) are the same in every copy: they do not use `X`, control enters and leaves them at one point each, and every value they read or produce has a type without `X`
+  --> $DIR/generic_body_not_generic.rs:116:1
    |
 LL | pub fn tally<X: HasName>(x: X) -> u32 {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `s: &str` and yields the returned `u32`
-  --> $DIR/generic_body_not_generic.rs:172:17
+note: these statements read only `s: &str` and produce the returned `u32`
+  --> $DIR/generic_body_not_generic.rs:118:17
    |
 LL |       let bytes = s.as_bytes();
    |  _________________^
@@ -117,22 +117,22 @@ LL | |     let mut i = 0usize;
 ...  |
 LL | |     (h ^ upper).wrapping_add(bytes.len() as u32)
    | |________________________________________________^
-note: one of the 3 instantiations, with X = Ann
-  --> $DIR/generic_body_not_generic.rs:1711:13
+note: one of the 3 argument sets: X = Ann
+  --> $DIR/generic_body_not_generic.rs:1389:13
    |
 LL |     let _ = tally(Ann) + tally(Bob) + tally(Cy);
    |             ^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `tally` keeps its signature and the cost is one call
-   = help: `tally` only uses `x` to obtain a `&str` through `HasName::name`; it could take `&str` instead
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `tally` keeps its signature. The added cost is one call
+   = help: `tally` uses `x` only to get a `&str` through `HasName::name`, so it could take `&str` instead
 
-warning: `wide_sum` is generic over `WIDE` and compiled 2 times in this crate, once per distinct set of arguments, but 41 of the 83 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `WIDE`, control enters it once and leaves it once, and the values it uses and yields have types free of `WIDE`
-  --> $DIR/generic_body_not_generic.rs:197:1
+warning: `wide_sum` is generic over `WIDE` and is compiled 2 times in this crate, but 41 of its 83 statements (as MIR, before optimization) are the same in every copy: they do not use `WIDE`, control enters and leaves them at one point each, and every value they read or produce has a type without `WIDE`
+  --> $DIR/generic_body_not_generic.rs:134:1
    |
 LL | pub fn wide_sum<const WIDE: bool>(src: &[u8]) -> u32 {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `src: &[u8]` and yields `acc: u32`; the body has 1 more such stretch of at least 24 statements
-  --> $DIR/generic_body_not_generic.rs:198:19
+note: these statements read only `src: &[u8]` and produce `acc: u32`, and the body has 1 more such part of at least 24 statements
+  --> $DIR/generic_body_not_generic.rs:135:19
    |
 LL |       let mut acc = 1u32;
    |  ___________________^
@@ -143,21 +143,21 @@ LL | |         let v = u32::from(src[i]);
 LL | |         i += 1;
 LL | |     }
    | |_____^
-note: one of the 2 instantiations, with WIDE = true
-  --> $DIR/generic_body_not_generic.rs:1712:13
+note: one of the 2 argument sets: WIDE = true
+  --> $DIR/generic_body_not_generic.rs:1390:13
    |
 LL |     let _ = wide_sum::<true>(b"wide") + wide_sum::<false>(b"narrow");
    |             ^^^^^^^^^^^^^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `wide_sum` keeps its signature and the cost is one call
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `wide_sum` keeps its signature. The added cost is one call
 
-warning: `stamp_tag` is generic over `TAG` and compiled 2 times in this crate, once per distinct set of arguments, but 130 of the 138 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `TAG`, control enters it once and leaves it once, and the values it uses and yields have types free of `TAG`
-  --> $DIR/generic_body_not_generic.rs:344:1
+warning: `stamp_tag` is generic over `TAG` and is compiled 2 times in this crate, but 130 of its 138 statements (as MIR, before optimization) are the same in every copy: they do not use `TAG`, control enters and leaves them at one point each, and every value they read or produce has a type without `TAG`
+  --> $DIR/generic_body_not_generic.rs:255:1
    |
 LL | pub fn stamp_tag<const TAG: u8>(src: &[u8; 4]) -> [u8; 16] {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `src: &[u8; 4]`, `buf: [u8; 16]`, the `usize` from `0` and yields the returned `[u8; 16]`
-  --> $DIR/generic_body_not_generic.rs:347:5
+note: these statements read only `src: &[u8; 4]`, `buf: [u8; 16]`, the `usize` from `0` and produce the returned `[u8; 16]`
+  --> $DIR/generic_body_not_generic.rs:258:5
    |
 LL | /     buf[4] = src[0];
 LL | |     buf[5] = src[1];
@@ -167,21 +167,21 @@ LL | |     buf[7] = src[3];
 LL | |     buf[0] = buf[15];
 LL | |     buf
    | |_______^
-note: one of the 2 instantiations, with TAG = 0
-  --> $DIR/generic_body_not_generic.rs:1718:13
+note: one of the 2 argument sets: TAG = 0
+  --> $DIR/generic_body_not_generic.rs:1396:13
    |
 LL |     let _ = stamp_tag::<0>(b"abcd")[0] ^ stamp_tag::<1>(b"cdef")[0];
    |             ^^^^^^^^^^^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `stamp_tag` keeps its signature and the cost is one call
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `stamp_tag` keeps its signature. The added cost is one call
 
-warning: `stamp_at` is generic over `TAG` and compiled 2 times in this crate, once per distinct set of arguments, but 130 of the 138 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `TAG`, control enters it once and leaves it once, and the values it uses and yields have types free of `TAG`
-  --> $DIR/generic_body_not_generic.rs:368:1
+warning: `stamp_at` is generic over `TAG` and is compiled 2 times in this crate, but 130 of its 138 statements (as MIR, before optimization) are the same in every copy: they do not use `TAG`, control enters and leaves them at one point each, and every value they read or produce has a type without `TAG`
+  --> $DIR/generic_body_not_generic.rs:275:1
    |
 LL | pub fn stamp_at<const TAG: u8>(src: &[u8; 4]) -> [u8; 16] {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `src: &[u8; 4]`, `buf: [u8; 16]`, the `usize` from `0` and yields the returned `[u8; 16]`
-  --> $DIR/generic_body_not_generic.rs:371:5
+note: these statements read only `src: &[u8; 4]`, `buf: [u8; 16]`, the `usize` from `0` and produce the returned `[u8; 16]`
+  --> $DIR/generic_body_not_generic.rs:278:5
    |
 LL | /     buf[4] = src[0];
 LL | |     buf[5] = src[1];
@@ -191,21 +191,21 @@ LL | |     buf[7] = src[3];
 LL | |     buf[0] = buf[15];
 LL | |     buf
    | |_______^
-note: one of the 2 instantiations, with TAG = 2
-  --> $DIR/generic_body_not_generic.rs:1719:13
+note: one of the 2 argument sets: TAG = 2
+  --> $DIR/generic_body_not_generic.rs:1397:13
    |
 LL |     let _ = stamp_at::<2>(b"abcd")[0] ^ stamp_at::<3>(b"cdef")[0];
    |             ^^^^^^^^^^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `stamp_at` keeps its signature and the cost is one call
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `stamp_at` keeps its signature. The added cost is one call
 
-warning: `drain` is generic over `S` and compiled 2 times in this crate, once per distinct set of arguments, but 37 of the 53 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `S`, control enters it once and leaves it once, and the values it uses and yields have types free of `S`
-  --> $DIR/generic_body_not_generic.rs:411:1
+warning: `drain` is generic over `S` and is compiled 2 times in this crate, but 37 of its 53 statements (as MIR, before optimization) are the same in every copy: they do not use `S`, control enters and leaves them at one point each, and every value they read or produce has a type without `S`
+  --> $DIR/generic_body_not_generic.rs:314:1
    |
 LL | pub fn drain<S: Sink>(sink: &mut S, src: &[u8]) -> u32 {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `acc: u32`, `b: u8` and yields `acc: u32`; it is inside a loop, so the call that replaces it runs once per iteration
-  --> $DIR/generic_body_not_generic.rs:415:17
+note: these statements read only `acc: u32`, `b: u8` and produce `acc: u32`, and run inside a loop, so the replacing call runs once per iteration
+  --> $DIR/generic_body_not_generic.rs:318:17
    |
 LL |           let v = u32::from(b);
    |  _________________^
@@ -215,21 +215,21 @@ LL | |         if v & 1 == 1 {
 ...  |
 LL | |         acc = acc.rotate_right(v & 7) ^ 0x5bd1e995;
    | |__________________________________________________^
-note: one of the 2 instantiations, with S = Count
-  --> $DIR/generic_body_not_generic.rs:1722:13
+note: one of the 2 argument sets: S = Count
+  --> $DIR/generic_body_not_generic.rs:1400:13
    |
 LL |     let _ = drain(&mut count, b"abc") + drain(&mut last, b"de");
    |             ^^^^^^^^^^^^^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `drain` keeps its signature and the cost is one call
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `drain` keeps its signature. The added cost is one call
 
-warning: `strict_sum` is generic over `B` and compiled 2 times in this crate, once per distinct set of arguments, but 43 of the 46 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `B`, control enters it once and leaves it once, and the values it uses and yields have types free of `B`
-  --> $DIR/generic_body_not_generic.rs:434:1
+warning: `strict_sum` is generic over `B` and is compiled 2 times in this crate, but 43 of its 46 statements (as MIR, before optimization) are the same in every copy: they do not use `B`, control enters and leaves them at one point each, and every value they read or produce has a type without `B`
+  --> $DIR/generic_body_not_generic.rs:332:1
    |
 LL | pub fn strict_sum<B: AsRef<[u8]>>(bytes: B) -> u32 {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `src: &[u8]` and yields the returned `u32`
-  --> $DIR/generic_body_not_generic.rs:436:19
+note: these statements read only `src: &[u8]` and produce the returned `u32`
+  --> $DIR/generic_body_not_generic.rs:334:19
    |
 LL |       let mut acc = 1u32;
    |  ___________________^
@@ -239,22 +239,22 @@ LL | |         let v = u32::from(*byte);
 ...  |
 LL | |     (acc ^ zeros).rotate_right(3)
    | |_________________________________^
-note: one of the 2 instantiations, with B = &str
-  --> $DIR/generic_body_not_generic.rs:1723:13
+note: one of the 2 argument sets: B = &str
+  --> $DIR/generic_body_not_generic.rs:1401:13
    |
 LL |     let _ = strict_sum("s") + strict_sum([1u8, 0]);
    |             ^^^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `strict_sum` keeps its signature and the cost is one call
-   = help: `strict_sum` only uses `bytes` to obtain a `&[u8]` through `AsRef::as_ref`; it could take `&[u8]` instead
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `strict_sum` keeps its signature. The added cost is one call
+   = help: `strict_sum` uses `bytes` only to get a `&[u8]` through `AsRef::as_ref`, so it could take `&[u8]` instead
 
-warning: `lattice` is generic over `B` and compiled 2 times in this crate, once per distinct set of arguments, but 60 of the 63 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `B`, control enters it once and leaves it once, and the values it uses and yields have types free of `B`
-  --> $DIR/generic_body_not_generic.rs:457:1
+warning: `lattice` is generic over `B` and is compiled 2 times in this crate, but 60 of its 63 statements (as MIR, before optimization) are the same in every copy: they do not use `B`, control enters and leaves them at one point each, and every value they read or produce has a type without `B`
+  --> $DIR/generic_body_not_generic.rs:351:1
    |
 LL | pub fn lattice<B: AsRef<[u8]>>(bytes: B) -> u32 {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `src: &[u8]` and yields the returned `u32`
-  --> $DIR/generic_body_not_generic.rs:459:19
+note: these statements read only `src: &[u8]` and produce the returned `u32`
+  --> $DIR/generic_body_not_generic.rs:353:19
    |
 LL |       let mut acc = 0x9e3779b9u32;
    |  ___________________^
@@ -264,22 +264,22 @@ LL | |         let v = u32::from(src[i]);
 ...  |
 LL | |     (acc ^ (src.len() as u32)).rotate_left(5)
    | |_____________________________________________^
-note: one of the 2 instantiations, with B = &str
-  --> $DIR/generic_body_not_generic.rs:1724:13
+note: one of the 2 argument sets: B = &str
+  --> $DIR/generic_body_not_generic.rs:1402:13
    |
 LL |     let _ = lattice("l") + lattice(vec![3u8]);
    |             ^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `lattice` keeps its signature and the cost is one call
-   = help: `lattice` only uses `bytes` to obtain a `&[u8]` through `AsRef::as_ref`; it could take `&[u8]` instead
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `lattice` keeps its signature. The added cost is one call
+   = help: `lattice` uses `bytes` only to get a `&[u8]` through `AsRef::as_ref`, so it could take `&[u8]` instead
 
-warning: `<Sealed<T> as std::ops::Deref>::deref` is generic over `T` and compiled 2 times in this crate, once per distinct set of arguments, but 41 of the 50 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `T`, control enters it once and leaves it once, and the values it uses and yields have types free of `T`
-  --> $DIR/generic_body_not_generic.rs:678:5
+warning: `<Sealed<T> as std::ops::Deref>::deref` is generic over `T` and is compiled 2 times in this crate, but 41 of its 50 statements (as MIR, before optimization) are the same in every copy: they do not use `T`, control enters and leaves them at one point each, and every value they read or produce has a type without `T`
+  --> $DIR/generic_body_not_generic.rs:550:5
    |
 LL |     fn deref(&self) -> &u32 {
    |     ^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `table: [u8; 8]`, `acc: u32` and yields `pick: bool`
-  --> $DIR/generic_body_not_generic.rs:681:23
+note: these statements read only `table: [u8; 8]`, `acc: u32` and produce `pick: bool`
+  --> $DIR/generic_body_not_generic.rs:553:23
    |
 LL |           let mut odd = 0u32;
    |  _______________________^
@@ -289,21 +289,21 @@ LL | |             acc = acc.rotate_left(3) ^ v;
 ...  |
 LL | |         let pick = (acc ^ odd) % 3 == 1 || odd > 4;
    | |__________________________________________________^
-note: one of the 2 instantiations, with T = &str
-  --> $DIR/generic_body_not_generic.rs:1747:25
+note: one of the 2 argument sets: T = &str
+  --> $DIR/generic_body_not_generic.rs:1425:25
    |
 LL |     let coerced: &u32 = &other;
    |                         ^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `<Sealed<T> as std::ops::Deref>::deref` keeps its signature and the cost is one call
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `<Sealed<T> as std::ops::Deref>::deref` keeps its signature. The added cost is one call
 
-warning: `read_scanned` is generic over `W` and compiled 2 times in this crate, once per distinct set of arguments, but 37 of the 72 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `W`, control enters it once and leaves it once, and the values it uses and yields have types free of `W`
-  --> $DIR/generic_body_not_generic.rs:819:1
+warning: `read_scanned` is generic over `W` and is compiled 2 times in this crate, but 37 of its 72 statements (as MIR, before optimization) are the same in every copy: they do not use `W`, control enters and leaves them at one point each, and every value they read or produce has a type without `W`
+  --> $DIR/generic_body_not_generic.rs:661:1
    |
 LL | pub fn read_scanned<W: Push>(out: &mut W, cur: &mut Cursor, want: usize) {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `cur: &mut Cursor`, `want: usize` and yields `start: usize`, `take: usize`, `end: usize`, `sum: u32`
-  --> $DIR/generic_body_not_generic.rs:820:17
+note: these statements read only `cur: &mut Cursor`, `want: usize` and produce `start: usize`, `take: usize`, `end: usize`, `sum: u32`
+  --> $DIR/generic_body_not_generic.rs:662:17
    |
 LL |       let start = cur.pos.min(cur.data.len());
    |  _________________^
@@ -314,21 +314,21 @@ LL | |     let end = start + take;
 LL | |         i += 1;
 LL | |     }
    | |_____^
-note: one of the 2 instantiations, with W = std::vec::Vec<u8>
-  --> $DIR/generic_body_not_generic.rs:1760:9
+note: one of the 2 argument sets: W = std::vec::Vec<u8>
+  --> $DIR/generic_body_not_generic.rs:1438:9
    |
 LL |         read_scanned(&mut v, &mut cur, 2);
    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `read_scanned` keeps its signature and the cost is one call
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `read_scanned` keeps its signature. The added cost is one call
 
-warning: `refill` is generic over `S` and compiled 2 times in this crate, once per distinct set of arguments, but 48 of the 67 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `S`, control enters it once and leaves it once, and the values it uses and yields have types free of `S`
-  --> $DIR/generic_body_not_generic.rs:971:1
+warning: `refill` is generic over `S` and is compiled 2 times in this crate, but 48 of its 67 statements (as MIR, before optimization) are the same in every copy: they do not use `S`, control enters and leaves them at one point each, and every value they read or produce has a type without `S`
+  --> $DIR/generic_body_not_generic.rs:778:1
    |
 LL | pub fn refill<S: Sink>(sink: &mut S, cur: &mut Cursor, want: usize) {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `cur: &mut Cursor`, `want: usize` and yields `start: usize`, `end: usize`, `padded: bool`
-  --> $DIR/generic_body_not_generic.rs:972:17
+note: these statements read only `cur: &mut Cursor`, `want: usize` and produce `start: usize`, `end: usize`, `padded: bool`
+  --> $DIR/generic_body_not_generic.rs:779:17
    |
 LL |       let start = cur.pos.min(cur.data.len());
    |  _________________^
@@ -339,21 +339,21 @@ LL | |     let end = start + take;
 LL | |         cur.sum ^= 0xa5a5_a5a5;
 LL | |     }
    | |_____^
-note: one of the 2 instantiations, with S = Count
-  --> $DIR/generic_body_not_generic.rs:1787:5
+note: one of the 2 argument sets: S = Count
+  --> $DIR/generic_body_not_generic.rs:1465:5
    |
 LL |     refill(&mut count, &mut cur, 2);
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `refill` keeps its signature and the cost is one call
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `refill` keeps its signature. The added cost is one call
 
-warning: `refill_twice` is generic over `S` and compiled 2 times in this crate, once per distinct set of arguments, but 50 of the 70 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `S`, control enters it once and leaves it once, and the values it uses and yields have types free of `S`
-  --> $DIR/generic_body_not_generic.rs:1000:1
+warning: `refill_twice` is generic over `S` and is compiled 2 times in this crate, but 50 of its 70 statements (as MIR, before optimization) are the same in every copy: they do not use `S`, control enters and leaves them at one point each, and every value they read or produce has a type without `S`
+  --> $DIR/generic_body_not_generic.rs:803:1
    |
 LL | pub fn refill_twice<S: Sink>(sink: &mut S, cur: &mut Cursor, want: usize) {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `cur: &mut Cursor`, `want: usize` and yields `start: usize`, `end: usize`, `padded: bool`
-  --> $DIR/generic_body_not_generic.rs:1001:17
+note: these statements read only `cur: &mut Cursor`, `want: usize` and produce `start: usize`, `end: usize`, `padded: bool`
+  --> $DIR/generic_body_not_generic.rs:804:17
    |
 LL |       let start = cur.pos.min(cur.data.len());
    |  _________________^
@@ -364,21 +364,21 @@ LL | |     let end = start + take;
 LL | |         cur.sum ^= 0xa5a5_a5a5;
 LL | |     }
    | |_____^
-note: one of the 2 instantiations, with S = Count
-  --> $DIR/generic_body_not_generic.rs:1789:5
+note: one of the 2 argument sets: S = Count
+  --> $DIR/generic_body_not_generic.rs:1467:5
    |
 LL |     refill_twice(&mut count, &mut cur, 2);
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `refill_twice` keeps its signature and the cost is one call
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `refill_twice` keeps its signature. The added cost is one call
 
-warning: `refill_total` is generic over `S` and compiled 2 times in this crate, once per distinct set of arguments, but 50 of the 69 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `S`, control enters it once and leaves it once, and the values it uses and yields have types free of `S`
-  --> $DIR/generic_body_not_generic.rs:1030:1
+warning: `refill_total` is generic over `S` and is compiled 2 times in this crate, but 50 of its 69 statements (as MIR, before optimization) are the same in every copy: they do not use `S`, control enters and leaves them at one point each, and every value they read or produce has a type without `S`
+  --> $DIR/generic_body_not_generic.rs:829:1
    |
 LL | pub fn refill_total<S: Sink>(sink: &mut S, cur: &mut Cursor, want: usize) -> u32 {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `cur: &mut Cursor`, `want: usize` and yields `start: usize`, `end: usize`, `padded: bool`
-  --> $DIR/generic_body_not_generic.rs:1031:17
+note: these statements read only `cur: &mut Cursor`, `want: usize` and produce `start: usize`, `end: usize`, `padded: bool`
+  --> $DIR/generic_body_not_generic.rs:830:17
    |
 LL |       let start = cur.pos.min(cur.data.len());
    |  _________________^
@@ -389,21 +389,21 @@ LL | |     let end = start + take;
 LL | |         cur.sum ^= 0xa5a5_a5a5;
 LL | |     }
    | |_____^
-note: one of the 2 instantiations, with S = Count
-  --> $DIR/generic_body_not_generic.rs:1791:13
+note: one of the 2 argument sets: S = Count
+  --> $DIR/generic_body_not_generic.rs:1469:13
    |
 LL |     let _ = refill_total(&mut count, &mut cur, 2) + refill_total(&mut last, &mut cur, 9);
    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `refill_total` keeps its signature and the cost is one call
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `refill_total` keeps its signature. The added cost is one call
 
-warning: `unlabel` is generic over `S` and compiled 2 times in this crate, once per distinct set of arguments, but 58 of the 77 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `S`, control enters it once and leaves it once, and the values it uses and yields have types free of `S`
-  --> $DIR/generic_body_not_generic.rs:1114:1
+warning: `unlabel` is generic over `S` and is compiled 2 times in this crate, but 58 of its 77 statements (as MIR, before optimization) are the same in every copy: they do not use `S`, control enters and leaves them at one point each, and every value they read or produce has a type without `S`
+  --> $DIR/generic_body_not_generic.rs:897:1
    |
 LL | pub fn unlabel<S: Sink>(sink: &mut S, seed: u32, keep: bool) -> u32 {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `seed: u32`, `acc: u32` and yields the returned `u32`
-  --> $DIR/generic_body_not_generic.rs:1121:5
+note: these statements read only `seed: u32`, `acc: u32` and produce the returned `u32`
+  --> $DIR/generic_body_not_generic.rs:904:5
    |
 LL | /     acc = acc.rotate_left(5).wrapping_mul(31);
 LL | |     acc ^= acc >> 7;
@@ -413,21 +413,21 @@ LL | |     acc = acc.rotate_right(3).wrapping_sub(40503);
 LL | |     acc ^= acc >> 3;
 LL | |     acc.wrapping_mul(16777619).rotate_right(seed & 7)
    | |_____________________________________________________^
-note: one of the 2 instantiations, with S = Count
-  --> $DIR/generic_body_not_generic.rs:1795:13
+note: one of the 2 argument sets: S = Count
+  --> $DIR/generic_body_not_generic.rs:1473:13
    |
 LL |     let _ = unlabel(&mut count, 5, true) + unlabel(&mut last, 6, false);
    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `unlabel` keeps its signature and the cost is one call
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `unlabel` keeps its signature. The added cost is one call
 
-warning: `handoff` is generic over `S` and compiled 2 times in this crate, once per distinct set of arguments, but 41 of the 56 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `S`, control enters it once and leaves it once, and the values it uses and yields have types free of `S`
-  --> $DIR/generic_body_not_generic.rs:1142:1
+warning: `handoff` is generic over `S` and is compiled 2 times in this crate, but 41 of its 56 statements (as MIR, before optimization) are the same in every copy: they do not use `S`, control enters and leaves them at one point each, and every value they read or produce has a type without `S`
+  --> $DIR/generic_body_not_generic.rs:918:1
    |
 LL | pub fn handoff<S: Sink>(sink: &mut S, seed: u32) -> u32 {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `seed: u32`, `text: std::string::String` and yields `acc: u32`
-  --> $DIR/generic_body_not_generic.rs:1145:19
+note: these statements read only `seed: u32`, `text: std::string::String` and produce `acc: u32`
+  --> $DIR/generic_body_not_generic.rs:921:19
    |
 LL |       let mut acc = seed;
    |  ___________________^
@@ -438,21 +438,21 @@ LL | |     acc = acc.wrapping_add(seed | 1);
 LL | |         acc ^= 0x9e3779b9;
 LL | |     }
    | |_____^
-note: one of the 2 instantiations, with S = Count
-  --> $DIR/generic_body_not_generic.rs:1796:13
+note: one of the 2 argument sets: S = Count
+  --> $DIR/generic_body_not_generic.rs:1474:13
    |
 LL |     let _ = handoff(&mut count, 7) + handoff(&mut last, 8);
    |             ^^^^^^^^^^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `handoff` keeps its signature and the cost is one call
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `handoff` keeps its signature. The added cost is one call
 
-warning: `trim_stamp` is generic over `E` and compiled 2 times in this crate, once per distinct set of arguments, but 87 of the 117 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `E`, control enters it once and leaves it once, and the values it uses and yields have types free of `E`
-  --> $DIR/generic_body_not_generic.rs:1364:1
+warning: `trim_stamp` is generic over `E` and is compiled 2 times in this crate, but 87 of its 117 statements (as MIR, before optimization) are the same in every copy: they do not use `E`, control enters and leaves them at one point each, and every value they read or produce has a type without `E`
+  --> $DIR/generic_body_not_generic.rs:1101:1
    |
 LL | pub fn trim_stamp<E: Emit>(out: &mut E, secs: u32, frac: u32) -> usize {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `buf: [u8; 32]`, `start: usize`, `len: usize` and yields `end: usize`, `begin: usize`, the `&[u8]` assigned to `shown`
-  --> $DIR/generic_body_not_generic.rs:1370:13
+note: these statements read only `buf: [u8; 32]`, `start: usize`, `len: usize` and produce `end: usize`, `begin: usize`, the `&[u8]` assigned to `shown`
+  --> $DIR/generic_body_not_generic.rs:1107:13
    |
 LL |       let n = start - len;
    |  _____________^
@@ -462,21 +462,21 @@ LL | |     while end > 0 && text[end - 1] == b' ' {
 ...  |
 LL | |     let shown = &text[begin..end];
    | |_________________________________^
-note: one of the 2 instantiations, with E = Count
-  --> $DIR/generic_body_not_generic.rs:1807:13
+note: one of the 2 argument sets: E = Count
+  --> $DIR/generic_body_not_generic.rs:1485:13
    |
 LL |     let _ = trim_stamp(&mut count, 7, 9) + trim_stamp(&mut last, 1, 0);
    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `trim_stamp` keeps its signature and the cost is one call
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `trim_stamp` keeps its signature. The added cost is one call
 
-warning: `FrameHeader::write` is generic over `E` and compiled 2 times in this crate, once per distinct set of arguments, but 44 of the 52 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `E`, control enters it once and leaves it once, and the values it uses and yields have types free of `E`
-  --> $DIR/generic_body_not_generic.rs:1405:5
+warning: `FrameHeader::write` is generic over `E` and is compiled 2 times in this crate, but 44 of its 52 statements (as MIR, before optimization) are the same in every copy: they do not use `E`, control enters and leaves them at one point each, and every value they read or produce has a type without `E`
+  --> $DIR/generic_body_not_generic.rs:1134:5
    |
 LL |     pub fn write<E: Emit>(&self, out: &mut E) -> usize {
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `self: &FrameHeader` and yields `buf: [u8; 9]`
-  --> $DIR/generic_body_not_generic.rs:1406:23
+note: these statements read only `self: &FrameHeader` and produce `buf: [u8; 9]`
+  --> $DIR/generic_body_not_generic.rs:1135:23
    |
 LL |           let mut buf = [0u8; 9];
    |  _______________________^
@@ -487,21 +487,21 @@ LL | |         buf[3] = self.kind;
 LL | |         buf[4] = self.flags;
 LL | |         buf[5..9].copy_from_slice(&self.stream.to_be_bytes());
    | |_____________________________________________________________^
-note: one of the 2 instantiations, with E = Count
-  --> $DIR/generic_body_not_generic.rs:1809:13
+note: one of the 2 argument sets: E = Count
+  --> $DIR/generic_body_not_generic.rs:1487:13
    |
 LL |     let _ = header.write(&mut count) + header.write(&mut last);
    |             ^^^^^^^^^^^^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `FrameHeader::write` keeps its signature and the cost is one call
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `FrameHeader::write` keeps its signature. The added cost is one call
 
-warning: `print_stamp` is generic over `E` and compiled 2 times in this crate, once per distinct set of arguments, but 91 of the 172 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `E`, control enters it once and leaves it once, and the values it uses and yields have types free of `E`
-  --> $DIR/generic_body_not_generic.rs:1435:1
+warning: `print_stamp` is generic over `E` and is compiled 2 times in this crate, but 91 of its 172 statements (as MIR, before optimization) are the same in every copy: they do not use `E`, control enters and leaves them at one point each, and every value they read or produce has a type without `E`
+  --> $DIR/generic_body_not_generic.rs:1153:1
    |
 LL | pub fn print_stamp<E: Emit>(out: &mut E, stats: &mut Stats, secs: u64, frac: u32) {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `stats: &mut Stats`, `secs: u64`, `frac: u32`, the `&mut [u8]` assigned to `cursor` and yields `cursor: &mut [u8]`, `start: usize`, `hours: u32`, `minutes: u32`, `seconds: u32`, `year_ish: u32`, `day_ish: u32`, `millis: u32`, `micros: u32`, the `u32` for field `dots`
-  --> $DIR/generic_body_not_generic.rs:1439:17
+note: these statements read only `stats: &mut Stats`, `secs: u64`, `frac: u32`, the `&mut [u8]` assigned to `cursor` and produce `cursor: &mut [u8]`, `start: usize`, `hours: u32`, `minutes: u32`, `seconds: u32`, `year_ish: u32`, `day_ish: u32`, `millis: u32`, `micros: u32`, the `u32` for field `dots`
+  --> $DIR/generic_body_not_generic.rs:1157:17
    |
 LL |       let start = cursor.len();
    |  _________________^
@@ -512,21 +512,21 @@ LL | |     let hours = (rem / 3_600) as u32;
 LL | |     let packed = (hours << 12) | (minutes << 6) | seconds;
 LL | |     stats.dots = stats.dots.wrapping_add(packed ^ day_ish ^ micros);
    | |___________________________________________________________________^
-note: one of the 2 instantiations, with E = Count
-  --> $DIR/generic_body_not_generic.rs:1811:5
+note: one of the 2 argument sets: E = Count
+  --> $DIR/generic_body_not_generic.rs:1489:5
    |
 LL |     print_stamp(&mut count, &mut stats, 12, 5);
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `print_stamp` keeps its signature and the cost is one call
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `print_stamp` keeps its signature. The added cost is one call
 
-warning: `settings_for` is generic over `M` and compiled 3 times in this crate, once per distinct set of arguments, but 31 of the 34 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `M`, control enters it once and leaves it once, and the values it uses and yields have types free of `M`
-  --> $DIR/generic_body_not_generic.rs:1485:1
+warning: `settings_for` is generic over `M` and is compiled 3 times in this crate, but 31 of its 34 statements (as MIR, before optimization) are the same in every copy: they do not use `M`, control enters and leaves them at one point each, and every value they read or produce has a type without `M`
+  --> $DIR/generic_body_not_generic.rs:1193:1
    |
 LL | pub fn settings_for<M>(marker: M, base: u32) -> Settings<M> {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `base: u32` and yields the `u32` for field `width`, the `u32` for field `height`, the `u32` for field `depth`, the `u32` for field `gamma`, the `u32` for field `seed`, the `u32` for field `limit`, the `u32` for field `floor`, the `u32` from `base.wrapping_mul(23).rotate_left(19)`
-  --> $DIR/generic_body_not_generic.rs:1487:16
+note: these statements read only `base: u32` and produce the `u32` for field `width`, the `u32` for field `height`, the `u32` for field `depth`, the `u32` for field `gamma`, the `u32` for field `seed`, the `u32` for field `limit`, the `u32` for field `floor`, the `u32` from `base.wrapping_mul(23).rotate_left(19)`
+  --> $DIR/generic_body_not_generic.rs:1195:16
    |
 LL |           width: base.wrapping_mul(3).rotate_left(2) ^ 0x51,
    |  ________________^
@@ -537,21 +537,21 @@ LL | |         gamma: base.wrapping_mul(11).rotate_left(7) ^ 0x54,
 LL | |         floor: base.wrapping_mul(19).rotate_left(17) ^ 0x57,
 LL | |         scale: base.wrapping_mul(23).rotate_left(19) ^ 0x58,
    | |____________________________________________________^
-note: one of the 3 instantiations, with M = ()
-  --> $DIR/generic_body_not_generic.rs:1813:13
+note: one of the 3 argument sets: M = ()
+  --> $DIR/generic_body_not_generic.rs:1491:13
    |
 LL |     let _ = settings_for((), 3).width + settings_for(7u8, 5).height + settings_for("m", 9).depth;
    |             ^^^^^^^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `settings_for` keeps its signature and the cost is one call
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `settings_for` keeps its signature. The added cost is one call
 
-warning: `Printer::write_str` is generic over `S` and compiled 3 times in this crate, once per distinct set of arguments, but 36 of the 48 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `S`, control enters it once and leaves it once, and the values it uses and yields have types free of `S`
-  --> $DIR/generic_body_not_generic.rs:1519:5
+warning: `Printer::write_str` is generic over `S` and is compiled 3 times in this crate, but 36 of its 48 statements (as MIR, before optimization) are the same in every copy: they do not use `S`, control enters and leaves them at one point each, and every value they read or produce has a type without `S`
+  --> $DIR/generic_body_not_generic.rs:1220:5
    |
 LL |     pub fn write_str<S: AsRef<[u8]>>(&mut self, s: S) -> Result<(), u32> {
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `self: &mut Printer`, `s: &[u8]` and yields the `usize` from `self.out.len()`
-  --> $DIR/generic_body_not_generic.rs:1521:9
+note: these statements read only `self: &mut Printer`, `s: &[u8]` and produce the `usize` from `self.out.len()`
+  --> $DIR/generic_body_not_generic.rs:1222:9
    |
 LL | /         self.col = self.col.wrapping_add(s.len() as u32);
 LL | |         let mut h = self.col;
@@ -561,22 +561,22 @@ LL | |             h = (h ^ u32::from(b)).wrapping_mul(0x01000193);
 LL | |         self.out.push((h & 0x7f) as u8);
 LL | |         if self.out.len() > 4096 {
    | |_________________________^
-note: one of the 3 instantiations, with S = &str
-  --> $DIR/generic_body_not_generic.rs:1815:13
+note: one of the 3 argument sets: S = &str
+  --> $DIR/generic_body_not_generic.rs:1493:13
    |
 LL |     let _ = printer.write_str("abc");
    |             ^^^^^^^^^^^^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `Printer::write_str` keeps its signature and the cost is one call
-   = help: `Printer::write_str` only uses `s` to obtain a `&[u8]` through `AsRef::as_ref`; it could take `&[u8]` instead
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `Printer::write_str` keeps its signature. The added cost is one call
+   = help: `Printer::write_str` uses `s` only to get a `&[u8]` through `AsRef::as_ref`, so it could take `&[u8]` instead
 
-warning: `<Ledger<T> as std::ops::Drop>::drop` is generic over `T` and compiled 2 times in this crate, once per distinct set of arguments, but 55 of the 61 counted statements in its body (as MIR, before optimization) are one stretch that is the same in every copy: it never mentions `T`, control enters it once and leaves it once, and the values it uses and yields have types free of `T`
-  --> $DIR/generic_body_not_generic.rs:1547:5
+warning: `<Ledger<T> as std::ops::Drop>::drop` is generic over `T` and is compiled 2 times in this crate, but 55 of its 61 statements (as MIR, before optimization) are the same in every copy: they do not use `T`, control enters and leaves them at one point each, and every value they read or produce has a type without `T`
+  --> $DIR/generic_body_not_generic.rs:1244:5
    |
 LL |     fn drop(&mut self) {
    |     ^^^^^^^^^^^^^^^^^^
    |
-note: this stretch uses only `counts: [u32; 6]`, `floor: u32` and yields `total: u32`
-  --> $DIR/generic_body_not_generic.rs:1550:23
+note: these statements read only `counts: [u32; 6]`, `floor: u32` and produce `total: u32`
+  --> $DIR/generic_body_not_generic.rs:1247:23
    |
 LL |           let mut sum = 0u32;
    |  _______________________^
@@ -587,12 +587,12 @@ LL | |         let mut i = 0u32;
 LL | |         let spread = peak.saturating_sub(sum / 6).wrapping_add(floor);
 LL | |         let total = if spread > at { sum ^ spread } else { sum.wrapping_mul(at + 1) };
    | |___________________________________________________________________________________^
-note: one of the 2 instantiations, with T = u8
-  --> $DIR/generic_body_not_generic.rs:1818:9
+note: one of the 2 argument sets: T = u8
+  --> $DIR/generic_body_not_generic.rs:1496:9
    |
 LL |     let _small_ledger = Ledger { tag: 1u8, counts: [1, 2, 3, 4, 5, 6], total: 0 };
    |         ^^^^^^^^^^^^^
-   = help: move the stretch into a non-generic fn that takes the values it uses and returns what it yields, and call that fn in its place; `<Ledger<T> as std::ops::Drop>::drop` keeps its signature and the cost is one call
+   = help: move these statements into a separate non-generic function that takes what they read and returns what they produce, and call it here. `<Ledger<T> as std::ops::Drop>::drop` keeps its signature. The added cost is one call
 
 warning: 24 warnings emitted
 

@@ -1,40 +1,7 @@
-// A function generic over a type or const parameter is compiled once per
-// distinct argument set the crate calls it with. The lint reports one only
-// when it can point at a stretch of the body -- a single-entry, single-exit
-// run of MIR blocks -- that names no parameter, reads only values whose types
-// name none, and hands on only such values: that stretch is the same code in
-// every copy, so a non-generic fn taking those values can hold it, the generic
-// fn keeps its signature and calls it, and the only cost is the call. What
-// depends on the parameter may come before the stretch (`bytes.as_ref()`) and
-// after it (the drop of `bytes`); a `panic!` inside it is not a way out of it;
-// a stretch inside a loop costs a call per pass and the note says so. A body
-// that touches its parameter every few statements, a stretch shorter than
-// `generic-body-not-generic-min-statements` counting only the statements
-// written by hand (R1: what a macro expands to moves with the stretch but
-// does not make it worth naming), a body whose every line reads through
-// `&self` where `Self` holds the parameter, a single instantiation, a
-// lifetime parameter, `#[inline(always)]`, a closure or a macro-written fn is
-// not flagged. Nor is a stretch that could not be moved out as it stands, or
-// not for the price of one call: one that would take a value each copy knows
-// as a constant (R2: `width_of(TAG)`, which folds in place and would not
-// behind a call), one entered only under a branch on such a constant (R4:
-// each copy keeps one arm, so the arm is not code every copy carries), one
-// that would hand back a borrow of a local it makes itself (R3), one whose
-// arguments would borrow one another at the call (R6: `inner(rec, name)`
-// with `name = &rec.name`), one whose hand-back would keep an argument
-// borrowed while the body touches that argument again (R7), and one a
-// compiler-made drop flag would have to cross (R5; such a flag is never
-// listed either). The R-numbers are the refusal rules the comments below
-// cite. Each comment names the stretch expected (its first and last source
-// line), what it takes and what it yields, or says why there is none.
+// One case per function. Each comment says the shape and whether it is reported, with the reason.
+// "The part" is the run of statements the lint would move into a separate non-generic function.
 
-// Flagged: only `bytes.as_ref()` before the loop and the drop of `bytes` after
-// the last line depend on `B`. The stretch is `let mut acc = 17u32;` through
-// `.rotate_left(7)` -- the loop and the tail, which ends in a call so the
-// value returned is made before the block that drops `bytes` -- the same in
-// all three instantiations `main` makes; it takes `src: &[u8]` and yields the
-// `u32` returned. All the fn wants from `B` is that `&[u8]`, and the help
-// says it could take one.
+// Reported: only `as_ref` and the drop of `bytes` use `B`. Extra help: it could take `&[u8]`.
 pub fn checksum<B: AsRef<[u8]>>(bytes: B) -> u32 {
     let src = bytes.as_ref();
     let mut acc = 17u32;
@@ -52,21 +19,14 @@ pub fn checksum<B: AsRef<[u8]>>(bytes: B) -> u32 {
     (acc ^ (src.len() as u32)).rotate_left(7)
 }
 
-pub struct Framed<T> {
+pub struct WithHeader<T> {
     pub payload: T,
     pub header: [u8; 4],
     pub declared_len: u32,
 }
 
-impl<T> Framed<T> {
-    // Flagged: `T` is the struct's parameter, not the method's, but the
-    // method is still compiled once per `T`. The two reads through `&self`
-    // come first -- where a field sits inside `Framed<T>` depends on `T` --
-    // and are hoisted into locals, the second through a call so the block
-    // they sit in ends with them; everything from `let mut word = 0u32;`
-    // through `.wrapping_mul(3)` and the return works on a `[u8; 4]` and a
-    // `u32`. The stretch takes `header: [u8; 4]` and `declared: u32` and
-    // yields the `u32` returned.
+impl<T> WithHeader<T> {
+    // Reported: `T` is the struct's parameter, but the method is still compiled once per `T`.
     pub fn header_word(&self) -> u32 {
         let header = self.header;
         let declared = u32::from_be(self.declared_len);
@@ -85,12 +45,7 @@ impl<T> Framed<T> {
     }
 }
 
-// Flagged: a const parameter counts like a type parameter. `N` is the length
-// of `block` and nothing else; past `as_slice` the body reads a `&[u8]`. The
-// stretch is `let mut lo = 1u32;` through the last line and the return; it
-// takes `bytes: &[u8]` and yields the `u32` returned. (Indexing `block[i]`
-// under `while i < N` would not do: the test against `N` and the array's type
-// bring `N` into every pass of the loop.)
+// Reported: a const parameter counts too. Past `as_slice` the body reads only a `&[u8]`.
 pub fn fold_block<const N: usize>(block: [u8; N]) -> u32 {
     let bytes = block.as_slice();
     let mut lo = 1u32;
@@ -105,11 +60,7 @@ pub fn fold_block<const N: usize>(block: [u8; N]) -> u32 {
     if folded % 2 == 0 { folded / 2 } else { folded.wrapping_mul(3) + 1 }
 }
 
-// Flagged: never called at a concrete type directly, but `relay` is, twice,
-// and each instantiation of `relay` instantiates this. `#[inline]` does not
-// excuse it -- the hint is not a demand -- but the note mentions it. The
-// stretch is `let mut total = 0u32;` through `.wrapping_add(groups)`, before
-// the drop of `text`; it takes `s: &str` and yields the `u32` returned.
+// Reported: reached only through `relay`, which is compiled twice. `#[inline]` does not stop it.
 #[inline]
 pub fn digits<S: AsRef<str>>(text: S) -> u32 {
     let s = text.as_ref();
@@ -130,8 +81,7 @@ pub fn digits<S: AsRef<str>>(text: S) -> u32 {
     (total ^ weight.rotate_right(5)).wrapping_add(groups)
 }
 
-// Fine: two statements per instantiation; this is the shim shape the lint
-// asks for.
+// Not reported: two statements per copy. This is the shape the lint asks for.
 pub fn relay<S: AsRef<str>>(text: S) -> u32 {
     digits(text).wrapping_add(1)
 }
@@ -162,11 +112,7 @@ impl HasName for Cy {
     }
 }
 
-// Flagged, and told the sharper thing: all `tally` wants from `X` is the
-// `&str` that `HasName::name` returns, so it could take the `&str`. The
-// stretch is `let bytes = s.as_bytes();` through `.wrapping_add(..)`, before
-// the drop of `x`; it takes `s: &str` and yields the `u32` returned. Three
-// instantiations.
+// Reported, with the extra help: `tally` uses `X` only to get a `&str`, so it could take `&str`.
 pub fn tally<X: HasName>(x: X) -> u32 {
     let s = x.name();
     let bytes = s.as_bytes();
@@ -184,16 +130,7 @@ pub fn tally<X: HasName>(x: X) -> u32 {
     (h ^ upper).wrapping_add(bytes.len() as u32)
 }
 
-// Flagged: `WIDE` is tested once, in the middle, which cuts the body in two.
-// The first loop with the two `let`s before it is one stretch -- it starts at
-// the fn's first statement, so there is no prefix, and `src` is the fn's own
-// argument, whose type names no parameter -- and is the one reported: `let
-// mut acc = 1u32;` through `i += 1;`, taking `src: &[u8]` and yielding `acc:
-// u32`. The second loop with the tail and the return is another, long enough
-// to report on its own but shorter, so the note counts it as one more: it
-// starts where the two sides of `if WIDE` meet again, so every copy runs it
-// whichever way its `WIDE` went. Only the one line inside the `if` belongs to
-// one copy and not the other (contrast `arm_sum`).
+// Reported: `if WIDE` splits the body. The first loop is reported, the note counts the second.
 pub fn wide_sum<const WIDE: bool>(src: &[u8]) -> u32 {
     let mut acc = 1u32;
     let mut i = 0usize;
@@ -218,13 +155,7 @@ pub fn wide_sum<const WIDE: bool>(src: &[u8]) -> u32 {
     (folded ^ (src.len() as u32)).wrapping_add(7)
 }
 
-// Quiet (R4, entry under a const-derived branch): the `else` arm is the loop
-// of `wide_sum` and then some -- well past the minimum, reading only `src`,
-// yielding `acc` -- but which arm runs is `FLAG`, a constant in each copy:
-// after constant propagation `arm_sum::<true>` keeps the first arm and
-// `arm_sum::<false>` the second, so that stretch is code one copy carries,
-// not both, and moving it out shares nothing. What the copies do share, the
-// line before the test and the line after the arms rejoin, is too short.
+// Not reported: the long `else` branch runs only in the `FLAG = false` copy, so it is not shared.
 pub fn arm_sum<const FLAG: bool>(src: &[u8]) -> u32 {
     let mut acc = 3u32;
     if FLAG {
@@ -263,14 +194,7 @@ pub const fn coding_of(tag: u8) -> Coding {
     }
 }
 
-// Quiet (R4, arm of a `match` on a const-derived value): the `Hex` arm reads
-// only `src`, hands back the `u32` the fn returns, and is thirty statements
-// written by hand -- but the `match` is on `coding_of(TAG)`, which names no
-// parameter in its type and is a constant in each copy all the same: every
-// copy keeps the one arm its `TAG` selects and drops the other three, so the
-// arm is code one copy in four carries. The block that switches is itself
-// clean (`coding` is a plain enum); what marks it is where its value came
-// from.
+// Not reported: the `match` is on a value computed from `TAG`, so each copy keeps one branch only.
 pub fn encode_arm<const TAG: u8>(src: &[u8]) -> u32 {
     let coding = coding_of(TAG);
     match coding {
@@ -310,15 +234,7 @@ pub const fn width_of(tag: u8) -> usize {
     }
 }
 
-// Quiet (R2, a const-derived value among what the stretch would take; bun
-// `to_bun_string_comptime<const ENCODING>`): everything past the first line
-// reads only `src` and `width`, and `width` is a plain `usize` -- but its
-// value is `width_of(TAG)`, a different constant in each copy, so
-// `chunks(width)`, the shifts and the multiply all fold to constants per
-// copy. Behind a call taking `width: usize` they are computed at run time in
-// every copy: that is not the same code at the cost of a call, so it is not
-// offered. The loop is the only stretch here that reaches the minimum, and
-// `width` is live into it.
+// Not reported: the loop reads `width`, computed from `TAG`, which would stop being a constant.
 pub fn encode_as<const TAG: u8>(src: &[u8]) -> u32 {
     let width = width_of(TAG);
     let mut acc = 0u32;
@@ -335,12 +251,7 @@ pub fn encode_as<const TAG: u8>(src: &[u8]) -> u32 {
     acc ^ n
 }
 
-// Flagged (R2 does not reach it): `TAG` goes into one byte of `buf` and the
-// rest of the body fills the bytes after it from `src` and from each other --
-// a header stamped, then the record. That store puts the constant in memory;
-// `buf` is run-time data with a constant somewhere in it, not a value each
-// copy knows, and nothing past the store folds per copy. The stretch after it
-// is every copy's, `buf` goes in as `&mut`, and it is offered.
+// Reported: `TAG` is stored into a byte of `buf`, which is run-time data, not a per-copy constant.
 pub fn stamp_tag<const TAG: u8>(src: &[u8; 4]) -> [u8; 16] {
     let mut buf = [0u8; 16];
     buf[3] = TAG;
@@ -360,11 +271,7 @@ pub fn stamp_tag<const TAG: u8>(src: &[u8; 4]) -> [u8; 16] {
     buf
 }
 
-// Flagged, the same stretch: here the per-copy constant is the index, not
-// the byte stored. `buf[TAG as usize] = 7` reads the constant to find the
-// place and stores a plain `7` there; where a value goes says nothing about
-// what it was computed from, so `buf` is no more a constant of the
-// instantiation than in `stamp_tag`.
+// Reported, same part: `TAG` is only the index of a store, so `buf` is not a per-copy constant.
 pub fn stamp_at<const TAG: u8>(src: &[u8; 4]) -> [u8; 16] {
     let mut buf = [0u8; 16];
     buf[TAG as usize] = 7;
@@ -403,11 +310,7 @@ impl Sink for Last {
     }
 }
 
-// Flagged: `sink.put` runs at the top of every iteration, so the stretch is
-// the rest of the loop body -- `let v = u32::from(b);` through `^
-// 0x5bd1e995;` -- entered after `put` returns and left for the loop's next
-// `next()`; the inner fn would be called once per byte and the note says so.
-// It takes `acc: u32` and `b: u8` and yields `acc: u32`.
+// Reported: the part is the loop body after `sink.put(b)`, so the note says it runs per iteration.
 pub fn drain<S: Sink>(sink: &mut S, src: &[u8]) -> u32 {
     let mut acc = 5381u32;
     for &b in src {
@@ -425,12 +328,7 @@ pub fn drain<S: Sink>(sink: &mut S, src: &[u8]) -> u32 {
     acc
 }
 
-// Flagged: the `panic!` sits inside the stretch. A block that panics has
-// predecessors like any other and must be as parameter-free as the rest, but
-// control never leaves it forward, so it is not a second way out: the inner
-// fn panics where this one did. The stretch is `let mut acc = 1u32;` through
-// `.rotate_right(3)`, before the drop of `bytes`; it takes `src: &[u8]` and
-// yields the `u32` returned.
+// Reported: the `panic!` is inside the part. A block that panics is not a second exit.
 pub fn strict_sum<B: AsRef<[u8]>>(bytes: B) -> u32 {
     let src = bytes.as_ref();
     let mut acc = 1u32;
@@ -449,11 +347,7 @@ pub fn strict_sum<B: AsRef<[u8]>>(bytes: B) -> u32 {
     (acc ^ zeros).rotate_right(3)
 }
 
-// Flagged: one loop inside another. The inner `while` is a single-entry,
-// single-exit stretch on its own and long enough; the outer loop that holds
-// it is another, and the largest wins: `let mut acc = 0x9e3779b9u32;`
-// through `.rotate_left(5)`, before the drop of `bytes`, taking `src: &[u8]`
-// and yielding the `u32` returned.
+// Reported: one loop inside another. The outer loop is the larger part and is the one reported.
 pub fn lattice<B: AsRef<[u8]>>(bytes: B) -> u32 {
     let src = bytes.as_ref();
     let mut acc = 0x9e3779b9u32;
@@ -476,8 +370,7 @@ pub fn lattice<B: AsRef<[u8]>>(bytes: B) -> u32 {
     (acc ^ (src.len() as u32)).rotate_left(5)
 }
 
-// Quiet: `sink` is written to every few statements, so no stretch between two
-// `put`s is long enough, though most statements depend on nothing generic.
+// Not reported: `sink.put` runs every few statements, so no part between two calls is long enough.
 pub fn render<S: Sink>(sink: &mut S, mut n: u32) -> u32 {
     n = n.wrapping_mul(2654435761);
     let hi = (n >> 24) as u8;
@@ -493,8 +386,7 @@ pub fn render<S: Sink>(sink: &mut S, mut n: u32) -> u32 {
     n.count_ones() + u32::from(mid)
 }
 
-// Quiet: `f` is called in the middle of every iteration; the arithmetic on
-// either side of the call is a stretch of its own, each too short.
+// Not reported: `f` is called in the middle of each iteration. The parts either side are too short.
 pub fn scan<F: FnMut(u8)>(src: &[u8], mut f: F) -> u32 {
     let mut acc = 0u32;
     let mut prev = 0u8;
@@ -511,8 +403,7 @@ pub fn scan<F: FnMut(u8)>(src: &[u8], mut f: F) -> u32 {
     acc
 }
 
-// Quiet: `UP` is tested every few lines, so the body is a row of short
-// stretches between the tests, none long enough.
+// Not reported: `UP` is tested every few lines, so every part between the tests is too short.
 pub fn stepped<const UP: bool>(mut n: u32) -> u32 {
     n = n.wrapping_mul(31).rotate_left(3);
     if UP {
@@ -537,12 +428,7 @@ pub struct Wrap<T> {
 }
 
 impl<T> Wrap<T> {
-    // Quiet: every statement is `u32` arithmetic, and none of them names `T`,
-    // so a stretch could start at the fn's first statement with nothing
-    // before it -- but every one of them reads a field through `&self`, the
-    // one value such a stretch would have to be handed, and `&Wrap<T>` names
-    // `T` (where `len` and `cap` sit inside `Wrap<T>` depends on it). No
-    // stretch that leaves `self` out is long enough.
+    // Not reported: every statement reads a field through `&self`, and `&Wrap<T>` uses `T`.
     pub fn slack(&self) -> u32 {
         let mut n = self.cap.wrapping_sub(self.len);
         n = n.wrapping_mul(3) ^ self.cap;
@@ -555,9 +441,7 @@ impl<T> Wrap<T> {
     }
 }
 
-// Quiet: `#[inline(always)]` asks for a copy of the body at every call site;
-// a call to one shared inner fn is what the author ruled out. Without the
-// attribute the loop and the tail would be reported like `checksum`'s.
+// Not reported: `#[inline(always)]` asks for a copy at every call site, so a shared call is out.
 #[inline(always)]
 pub fn mix<B: AsRef<[u8]>>(bytes: B) -> u32 {
     let src = bytes.as_ref();
@@ -572,8 +456,7 @@ pub fn mix<B: AsRef<[u8]>>(bytes: B) -> u32 {
     h.wrapping_add(src.len() as u32).rotate_left(11)
 }
 
-// Fine: called twice, both times with `&str`, so there is one instantiation
-// and nothing is duplicated, though the loop would qualify.
+// Not reported: called twice with `&str`, so there is one copy.
 pub fn vowels<S: AsRef<str>>(text: S) -> u32 {
     let s = text.as_ref();
     let mut n = 0u32;
@@ -590,8 +473,7 @@ pub fn vowels<S: AsRef<str>>(text: S) -> u32 {
     n.saturating_sub(1)
 }
 
-// Fine: every statement moves, compares or copies a `T`; there is nothing to
-// hoist out.
+// Not reported: every statement moves, compares or copies a `T`.
 pub fn largest<T: PartialOrd + Copy>(items: &[T], floor: T) -> T {
     let mut best = floor;
     for item in items {
@@ -602,14 +484,12 @@ pub fn largest<T: PartialOrd + Copy>(items: &[T], floor: T) -> T {
     best
 }
 
-// Fine: two instantiations, but the shared part is a multiply and an add
-// (under `generic-body-not-generic-min-statements`).
+// Not reported: two copies, but the shared part is under `generic-body-not-generic-min-statements`.
 pub fn padded_len<B: AsRef<[u8]>>(bytes: B) -> usize {
     bytes.as_ref().len() * 2 + 1
 }
 
-// Fine: already split. The generic part is one call; the work is in
-// `spread_inner`, which is compiled once.
+// Not reported: already split. The generic part is one call and the work is in `spread_inner`.
 pub fn spread<B: AsRef<[u8]>>(bytes: B) -> u32 {
     spread_inner(bytes.as_ref())
 }
@@ -629,8 +509,7 @@ fn spread_inner(src: &[u8]) -> u32 {
     if src.is_empty() { 0 } else { (max - min) * 4 + max }
 }
 
-// Fine: a lifetime parameter is erased before codegen, so every call shares
-// one body however many there are.
+// Not reported: a lifetime parameter is erased before code generation, so there is one copy.
 pub fn trailing_spaces<'a>(line: &'a str) -> &'a str {
     let bytes = line.as_bytes();
     let mut end = bytes.len();
@@ -642,8 +521,7 @@ pub fn trailing_spaces<'a>(line: &'a str) -> &'a str {
     if seen > 4 { line } else { &line[..end] }
 }
 
-// Quiet: the arithmetic lives in a closure, and closures are not measured,
-// though each instantiation of `weigh` compiles its own copy of this one.
+// Not reported: the arithmetic is in a closure, and closures are not measured.
 pub fn weigh<B: AsRef<[u8]>>(bytes: B) -> u32 {
     let step = |acc: u32, b: &u8| {
         let v = u32::from(*b);
@@ -666,13 +544,7 @@ pub struct Sealed<T> {
     pub word: u32,
 }
 
-// Flagged: nothing in `main` calls `deref` by name. `sealed.leading_zeros()`
-// reaches it through the auto-deref rustc inserts before the method call and
-// `&other` through a deref coercion, and each is an instantiation. The reads
-// through `&self` at the top and the borrows of its fields at the bottom
-// depend on `T`; the stretch between them is `let mut odd = 0u32;` through
-// `|| odd > 4;`, taking `table: [u8; 8]` and `acc: u32` and yielding `pick:
-// bool`.
+// Reported: `deref` is reached through auto-deref and a deref coercion in `main`, one copy each.
 impl<T> std::ops::Deref for Sealed<T> {
     type Target = u32;
     fn deref(&self) -> &u32 {
@@ -699,13 +571,7 @@ pub struct Record {
     pub flags: u32,
 }
 
-// Quiet (R6, two of the inner fn's arguments conflict at the call): between
-// the two `put` calls nothing names `S`, the stretch is long enough, and it
-// takes `rec: &mut Record`, `name: &[u8]` and `weight`. But `name` *is*
-// `&rec.name`: one body may write `rec.count` while `rec.name` is borrowed,
-// two arguments may not -- `inner(rec, name, weight)` is E0502. The shorter
-// stretch from `rec.count = ..` on does not read `name` at all, and is no
-// better: `name` is still held across it for the `put` after.
+// Not reported: the part would take `rec: &mut Record` beside `name`, a borrow of `rec.name`.
 pub fn recount<S: Sink>(sink: &mut S, rec: &mut Record, weight: u32) {
     let name: &[u8] = &rec.name;
     sink.put(rec.sent as u8);
@@ -728,12 +594,7 @@ pub fn recount<S: Sink>(sink: &mut S, rec: &mut Record, weight: u32) {
     rec.sent += 1;
 }
 
-// Quiet (R6 again, the borrow never read inside the stretch): `name` is made
-// before the first `put` and read only by the last, so it is not among what
-// the stretch from `rec.count = ..` through `rec.flags = ..` takes -- that is
-// `rec: &mut Record`, `len` and `weight` -- but it is held across it, and
-// `inner(rec, len, weight)` with `name = &rec.name` live is E0502 where the
-// one body writing `rec.count` beside it was fine.
+// Not reported: `name = &rec.name` stays live across a part that would take `rec: &mut Record`.
 pub fn restamp<S: Sink>(sink: &mut S, rec: &mut Record, weight: u32) {
     let name: &[u8] = &rec.name;
     let len = name.len() as u32;
@@ -760,16 +621,7 @@ pub struct Cursor {
     pub sum: u32,
 }
 
-// Quiet (R7, a hand-back keeps one of the inner fn's arguments borrowed past
-// the call): from `let start` to the first `put` nothing names `S`, the
-// stretch is long enough, and it takes `cur: &mut Cursor` and `want` and
-// hands back `sum` and `chunk: &[u8]` -- and `chunk` is `&cur.data[..]`. In
-// one body `cur.reads += 1` beside a live borrow of `cur.data` is two places
-// of `*cur`; once `chunk` comes back from `inner(cur, want)`, whose signature
-// can only tie it to all of `*cur` (mutably: the inner fn wrote `cur.sum`
-// through the same reference), `cur.reads += 1` before the last `put` is
-// E0503. A stretch starting after `let chunk` would take `chunk` beside `cur`
-// (R6), and what is left either side is too short.
+// Not reported: returning `chunk` would keep `*cur` borrowed while `cur.reads += 1` writes to it.
 pub fn read_into<S: Sink>(sink: &mut S, cur: &mut Cursor, want: usize) {
     let start = cur.pos.min(cur.data.len());
     let end = cur.data.len().min(start + want);
@@ -805,17 +657,7 @@ impl Push for u32 {
     }
 }
 
-// Flagged, short of the R7 stretch (the bun fixture's `read_into`, body
-// verbatim): as in `read_into` the largest stretch -- `let start` through
-// `cur.reads += 1` -- hands back `chunk`, a borrow of `cur.data`, and the
-// body touches `cur` again while `chunk` lives, so R7 refuses it. But here
-// ten lines come before `let chunk`, and they are a stretch of their own:
-// `let start` through `i += 1;` takes `cur: &mut Cursor` and `want` and
-// yields `start`, `take`, `end` and `sum`, plain integers all, so nothing
-// stays borrowed past the call. That prefix is what is reported. R7 removes
-// a candidate, not the fn: the largest stretch that survives every rule is
-// offered, and `read_into` above is quiet only because what survives there
-// is too short.
+// Reported: only the part before `let chunk`, which produces integers, so nothing stays borrowed.
 pub fn read_scanned<W: Push>(out: &mut W, cur: &mut Cursor, want: usize) {
     let start = cur.pos.min(cur.data.len());
     let avail = cur.data.len() - start;
@@ -841,14 +683,7 @@ pub fn read_scanned<W: Push>(out: &mut W, cur: &mut Cursor, want: usize) {
     }
 }
 
-// Quiet (R7, the hand-back put away first): the same stretch as `read_into`,
-// but past the first `put` the body files `chunk` in `keep`, which outlives
-// it, before bumping `cur.reads`. `chunk` itself is dead by then; the loan it
-// carried is not -- `keep` holds it, for all of `'c` -- so once `chunk` comes
-// back from `inner(cur, want)` tied to all of `*cur`, `cur.reads += 1` is
-// E0503 just the same. What a callee handed a place to leave the hand-back
-// in does with it is not followed: from the `push` on the loan is taken as
-// held.
+// Not reported: as `read_into`, but `chunk` is pushed into `keep`, which then holds the borrow.
 pub fn read_keep<'c, S: Sink>(sink: &mut S, cur: &'c mut Cursor, want: usize, keep: &mut Vec<&'c [u8]>) {
     let start = cur.pos.min(cur.data.len());
     let end = cur.data.len().min(start + want);
@@ -873,9 +708,7 @@ pub struct Kept<'k> {
     pub last: &'k [u8],
 }
 
-// Quiet (R7, the hand-back stored through a pointer first): as `read_keep`,
-// with `out.last = chunk` -- a store through `out: &mut Kept` -- in place of
-// the `push`. No local of the body holds the loan after it; `*out` does.
+// Not reported: as `read_keep`, with the borrow stored through `out: &mut Kept` instead of pushed.
 pub fn read_store<'c, S: Sink>(sink: &mut S, cur: &'c mut Cursor, want: usize, out: &mut Kept<'c>) {
     let start = cur.pos.min(cur.data.len());
     let end = cur.data.len().min(start + want);
@@ -896,16 +729,7 @@ pub fn read_store<'c, S: Sink>(sink: &mut S, cur: &'c mut Cursor, want: usize, o
     sink.put(cur.reads as u8);
 }
 
-// Quiet (R7, a shared loan and a later write through a `Box`): from `let
-// start` to the first `put` the stretch only reads `cur`, so the inner fn
-// would take `&Box<Cursor>` (or `&Cursor`) and hand back `chunk` tied to it by
-// a shared loan -- under which `cur.reads += 1` while `chunk` lives is E0506.
-// In this MIR that write goes through the raw pointer `ElaborateBoxDerefs`
-// copies out of the `Box`, not through `cur` by name; it is a write through
-// `cur` all the same. What follows `let chunk` is too short on its own, and
-// so is what precedes it. (With `sink.put(cur.reads as u8)` in place of the
-// increment the stretch is reported, and rightly: a read sits fine beside a
-// shared loan.)
+// Not reported: returning `chunk` keeps the `Box` borrowed while `cur.reads += 1` writes to it.
 pub fn peek_boxed<S: Sink>(sink: &mut S, mut cur: Box<Cursor>, want: usize) -> Box<Cursor> {
     let start = cur.pos.min(cur.data.len());
     let end = cur.data.len().min(start + want);
@@ -931,15 +755,7 @@ pub struct Parser<'a> {
     pub sum: u32,
 }
 
-// Quiet (R7, an exclusive loan earned through a nested `&mut`; bun
-// `JSXTag::parse`): from `let start` to the first `put` the stretch writes
-// `p.src.pos` -- through the `&mut Src` behind `p`, which `Derefer` reaches by
-// copying that `&mut` into a temporary and writing through the copy -- so the
-// inner fn must take `p: &mut Parser`, and `tok`, borrowed through the same
-// path, comes back tied to all of `*p` exclusively: the mere read `p.depth`
-// while `tok` lives is E0503. Taking `p: &Parser` instead is E0594 inside the
-// inner fn. A stretch starting after `let tok` would take `tok` beside `p`
-// (R6).
+// Not reported: returning `tok` would keep all of `*p` mutably borrowed while `p.depth` is read.
 pub fn next_token<S: Sink>(sink: &mut S, p: &mut Parser<'_>, want: usize) {
     let start = p.src.pos.min(p.src.buf.len());
     let end = p.src.buf.len().min(start + want);
@@ -958,16 +774,7 @@ pub fn next_token<S: Sink>(sink: &mut S, p: &mut Parser<'_>, want: usize) {
     sink.put(tok.len() as u8);
 }
 
-// Flagged, two lines shorter than the blocks allow (the checked-arithmetic
-// tail is trimmed): from `let start` through `cur.reads += 1` nothing names
-// `S`. In this MIR `cur.pos = end; cur.reads += 1` is one block -- the store,
-// then the checked `(u32, bool)` pair and the assert on its overflow bit --
-// with the store of the sum sharing the next block with `sink.put`, which
-// does name `S`. Ending on that block the stretch would hand back "the `(u32,
-// bool)` from `cur.reads += 1`" for the outer fn to finish the addition with,
-// which no one would write; the search gives the block back whole instead,
-// `cur.pos = end` with it, so the stretch ends at the `if`, takes `cur: &mut
-// Cursor` and `want`, and yields `start`, `end` and `padded`.
+// Reported: ends at the `if`. Including `cur.reads += 1` would return its unfinished checked add.
 pub fn refill<S: Sink>(sink: &mut S, cur: &mut Cursor, want: usize) {
     let start = cur.pos.min(cur.data.len());
     let avail = cur.data.len() - start;
@@ -992,11 +799,7 @@ pub fn refill<S: Sink>(sink: &mut S, cur: &mut Cursor, want: usize) {
     }
 }
 
-// Flagged, the same stretch: two `+=` in a row are two such blocks, the
-// second holding the store of the first's sum beside its own pair. The
-// second goes back for handing back its pair; that leaves the first's pair
-// crossing the edge, so the first goes back too, and the stretch again ends
-// at the `if` and yields `start`, `end` and `padded`.
+// Reported, same part: two `+=` in a row, and both blocks are left out for the same reason.
 pub fn refill_twice<S: Sink>(sink: &mut S, cur: &mut Cursor, want: usize) {
     let start = cur.pos.min(cur.data.len());
     let avail = cur.data.len() - start;
@@ -1022,11 +825,7 @@ pub fn refill_twice<S: Sink>(sink: &mut S, cur: &mut Cursor, want: usize) {
     }
 }
 
-// Flagged, the same stretch: `let total = cur.reads + 1` copies `cur.reads`
-// into a temporary before computing the pair, in the pair's block, and
-// `total` itself is assigned in the next, beside `sink.put`. The block goes
-// back whole, copy and all, rather than have the stretch yield "the `(u32,
-// bool)` from `cur.reads + 1`".
+// Reported, same part: the block of `let total = cur.reads + 1` is left out whole the same way.
 pub fn refill_total<S: Sink>(sink: &mut S, cur: &mut Cursor, want: usize) -> u32 {
     let start = cur.pos.min(cur.data.len());
     let avail = cur.data.len() - start;
@@ -1056,13 +855,7 @@ fn consume(text: String) -> u32 {
     text.len() as u32
 }
 
-// Quiet (R5, given away on one path, dropped to some effect on the other):
-// between the two `put` calls nothing names `S` and the run is long enough,
-// but it drops `guard` only when `acc` is even; when it is odd the fn holds
-// the lock to its end and releases it there, behind the drop flag that `if`
-// clears. An inner fn taking `guard` by value would release the lock on its
-// own return, before the second `put`. Either side of the `if` alone is too
-// short.
+// Not reported: `drop(guard)` runs on one path only, so the part would need a hidden drop flag.
 pub fn settle<S: Sink>(sink: &mut S, lock: &std::sync::Mutex<u32>, seed: u32) -> u32 {
     let guard = lock.lock().unwrap();
     let base = *guard;
@@ -1081,12 +874,7 @@ pub fn settle<S: Sink>(sink: &mut S, lock: &std::sync::Mutex<u32>, seed: u32) ->
     acc
 }
 
-// Quiet (R5, a drop flag among what the stretch would hand back): `text` is
-// made only when `acc` is even and dropped at the fn's end behind the flag
-// that records it, which the run between the two `put` calls sets. The flag
-// is a `bool` nobody wrote and `text` a `String` that run may not have made;
-// an inner fn can return neither. Made on both paths, `text` would be handed
-// back like any other value. Either side of the `if` alone is too short.
+// Not reported: `text` is made on one path only, so the part would return a hidden drop flag.
 pub fn label<S: Sink>(sink: &mut S, seed: u32) -> u32 {
     let text: String;
     sink.put(seed as u8);
@@ -1105,12 +893,7 @@ pub fn label<S: Sink>(sink: &mut S, seed: u32) -> u32 {
     acc
 }
 
-// Flagged (R5, a drop flag among what the stretch would take): `text` is
-// given away or kept before the `put`, and its drop at the fn's end tests the
-// flag that says which. A stretch running on to the `return` would hold that
-// test, take the flag, and drop a `text` that may be gone; the one reported
-// stops short of it: `acc = acc.rotate_left(5)..` through `.rotate_right(seed
-// & 7)`, taking `seed: u32` and `acc: u32` and yielding the `u32` returned.
+// Reported: the part stops before the `return`, where the hidden drop flag of `text` is tested.
 pub fn unlabel<S: Sink>(sink: &mut S, seed: u32, keep: bool) -> u32 {
     let text = String::from("kept");
     let mut acc = seed;
@@ -1131,14 +914,7 @@ pub fn unlabel<S: Sink>(sink: &mut S, seed: u32, keep: bool) -> u32 {
     acc.wrapping_mul(16777619).rotate_right(seed & 7)
 }
 
-// Flagged (R5, the flag itself never listed): `text` is made before the first
-// `put` and given away inside the stretch when `acc` is even; all the fn does
-// with it afterwards is drop it, behind the flag the stretch clears, and a
-// `String`'s drop only frees memory, so the inner fn may take `text` by value
-// and drop it itself. The stretch is `let mut acc = seed;` through the `}`
-// after `acc ^= 0x9e3779b9;`, taking `seed: u32` and `text: String` and
-// yielding `acc: u32` -- and no `bool`: the flag has no name and no source to
-// give it.
+// Reported: the part takes `text` by value and may drop it. The hidden drop flag is not listed.
 pub fn handoff<S: Sink>(sink: &mut S, seed: u32) -> u32 {
     let text = String::from("payload");
     sink.put(seed as u8);
@@ -1176,13 +952,7 @@ impl Emit for Last {
     }
 }
 
-// Quiet (R3, a hand-back that borrows a local the stretch makes; bun
-// `send_data`'s `content_to_compress`, `readdir_*`'s `name_to_copy`): from
-// `seed.wrapping_mul` through `&buf[..n]` nothing names `E` and the run is
-// long enough, but what it hands the call after it is `view`, a borrow of
-// `buf`, and `buf` is made inside the stretch: the inner fn would return a
-// reference into its own frame. The part before `buf` is a handful of
-// statements, so no shorter stretch qualifies and nothing is offered.
+// Not reported: the part would return `view`, which borrows `buf`, a local made inside the part.
 pub fn own_view<E: Emit>(out: &mut E, seed: u32) {
     let x = seed.wrapping_mul(0x9e37_79b9);
     let y = x.rotate_left(7) ^ seed;
@@ -1202,14 +972,7 @@ pub fn own_view<E: Emit>(out: &mut E, seed: u32) {
     out.emit(view);
 }
 
-// Quiet (R3, the address parked where it outlives the stretch): the same
-// arithmetic and the same `buf`, but the borrow of it goes into `parts`, and
-// `parts` is still read by the loop after the stretch. `Vec::push` is handed
-// `&buf[..n]` beside `&mut parts` -- a place that can keep an address -- so
-// whether `parts` is made inside the stretch (and handed back holding the
-// borrow) or before it (and lent to the inner fn, which would push a borrow
-// of its own local into it), `buf` would not live long enough. Nothing
-// shorter qualifies, so nothing is offered.
+// Not reported: the borrow of `buf` is pushed into `parts`, which is read after the part.
 pub fn parked_view<E: Emit>(out: &mut E, seed: u32) {
     let mut parts: Vec<&[u8]> = Vec::with_capacity(2);
     let x = seed.wrapping_mul(0x9e37_79b9);
@@ -1237,14 +1000,7 @@ fn stash<'a>(slot: std::rc::Rc<std::cell::Cell<Option<&'a [u8]>>>, view: &'a [u8
     slot.set(Some(view));
 }
 
-// Quiet (R3, the address parked through a handle the call is given whole):
-// `parked_view` again, but the place the borrow of `buf` is left in arrives
-// as an `Rc` moved into `stash` -- nothing `&mut` about it, and the callee
-// owns the `Rc`. What it does not own is the `Cell` the `Rc` points at:
-// `slot` is the other handle, read after the stretch, so the inner fn (from
-// `Rc::new` through `stash(..)`, handing back `slot`) would return a way to a
-// borrow of its own `buf`. A pointer inside an argument that the argument
-// does not own outright is a place like any `&mut`, and nothing is offered.
+// Not reported: the borrow of `buf` is stored through an `Rc` whose `Cell` is read after the part.
 pub fn rc_parked<E: Emit>(out: &mut E, seed: u32) {
     let slot = std::rc::Rc::new(std::cell::Cell::new(None));
     let slot2 = std::rc::Rc::clone(&slot);
@@ -1279,13 +1035,7 @@ impl Both<'_, '_> {
     }
 }
 
-// Quiet (R3, the carrier and the place in one argument): `parked_view` once
-// more, with `&buf[..n]` and `&mut parts` put into one `Both` before the call
-// that joins them, so `go` is handed a single argument and no rule about a
-// second one sees the store. The struct literal is where the two meet, and
-// that is refused as the call would have been: the stretch from
-// `Vec::with_capacity` through `.go()` would hand back `parts` holding a
-// borrow of the `buf` it made. Nothing shorter qualifies.
+// Not reported: `&buf[..n]` and `&mut parts` go into one `Both` value, refused like the call.
 pub fn single_arg_park<E: Emit>(out: &mut E, seed: u32) {
     let mut parts: Vec<&[u8]> = Vec::with_capacity(2);
     let x = seed.wrapping_mul(0x9e37_79b9);
@@ -1317,8 +1067,7 @@ fn push_pair<'a>(pair: (&'a [u8], &mut Vec<&'a [u8]>)) {
     pair.1.push(pair.0);
 }
 
-// Quiet (R3, the same through a tuple): the pair `(&buf[..n], &mut parts)`
-// is the one argument, and building it is what is refused.
+// Not reported: the same through a tuple argument.
 pub fn tuple_arg_park<E: Emit>(out: &mut E, seed: u32) {
     let mut parts: Vec<&[u8]> = Vec::with_capacity(2);
     let x = seed.wrapping_mul(0x9e37_79b9);
@@ -1348,19 +1097,7 @@ fn advance(cur: &mut &mut [u8], bytes: &[u8]) {
     *cur = tail;
 }
 
-// Flagged, for less than it first looks (R3 then R6 refuse the larger
-// stretches; bun `print_json`, ConsoleObject.rs -- `iso_string_buf` /
-// `cursor` / `out_buf`): from `[b' '; 32]` to the line before
-// `out.emit(shown)` nothing names `E`. But that stretch hands on `shown`,
-// which borrows `buf`, and `buf` is made inside it -- a fn cannot return a
-// borrow of its own local. Start one line later and `buf` goes in by
-// reference instead, beside `cursor`, which *is* a `&mut` into `buf`:
-// `inner(&buf, cursor, ..)` does not borrow-check. What is left is the
-// stretch from `start - len` on, where `cursor` is dead: it takes `buf` (by
-// reference), `start` and `len`, trims, and hands back `end`, `begin` and
-// the `&[u8]` that `shown` reborrows -- a borrow of something it was handed,
-// which is fine. The fill before it is a few statements short of a stretch
-// of its own.
+// Reported: only from `start - len` on. Larger parts would return or alias a borrow of `buf`.
 pub fn trim_stamp<E: Emit>(out: &mut E, secs: u32, frac: u32) -> usize {
     let mut buf = [b' '; 32];
     let mut cursor = &mut buf[4..];
@@ -1393,15 +1130,7 @@ pub struct FrameHeader {
 }
 
 impl FrameHeader {
-    // Flagged (R3's call rule, narrowed by what the other argument can hold;
-    // bun `FrameHeader::write`, h2_frame_parser.rs, 9 copies): everything up
-    // to `out.emit(&buf)` fills a `[u8; 9]` from `&self` and hands `buf` back
-    // by value. On the way `copy_from_slice` is handed `&mut buf[5..9]`
-    // beside `&self.stream.to_be_bytes()` -- two addresses in one call, which
-    // a rule counting address-holding operands would refuse -- but a `&[u8]`
-    // is nowhere a callee could leave the first, so nothing of `buf` outlives
-    // the stretch and it is offered: it takes `self: &FrameHeader` and yields
-    // `buf: [u8; 9]`.
+    // Reported: fills `buf` from `&self` and returns it by value, so nothing stays borrowed.
     pub fn write<E: Emit>(&self, out: &mut E) -> usize {
         let mut buf = [0u8; 9];
         buf[0] = (self.length >> 16) as u8;
@@ -1420,18 +1149,7 @@ pub struct Stats {
     pub longest: usize,
 }
 
-// Flagged, for less than it first looks (R3 then R6 refuse the larger
-// stretches; the same bun `print_json` shape as `trim_stamp`, with the
-// `write!`s it has there): from `[0u8; 40]` to the line before
-// `out.emit(text)` nothing names `E`, but that stretch hands on `text`, a
-// borrow of the `buf` it makes. One line later `buf` goes in by reference,
-// beside `cursor`, a `&mut` into it; and each `write!` hands `cursor` to a
-// call beside `Arguments` holding the addresses of the numbers it prints. What
-// is left is the arithmetic from `let start` through `stats.dots = ..`: it
-// takes `stats`, `secs`, `frac` and the `&mut [u8]` that `cursor` reborrows,
-// and hands back `cursor`, `start`, the seven numbers the `write!`s print and
-// the `u32` stored to `dots` (the store shares a block with the first
-// `write!`).
+// Reported: only `let start` through `stats.dots = ..`. Larger parts would keep a borrow of `buf`.
 pub fn print_stamp<E: Emit>(out: &mut E, stats: &mut Stats, secs: u64, frac: u32) {
     use std::io::Write as _;
     let mut buf = [0u8; 40];
@@ -1471,17 +1189,7 @@ pub struct Settings<M> {
     pub scale: u32,
 }
 
-// Flagged (many unnamed hand-backs are awkward, not a reason to refuse; bun
-// `IntFormat::new`, the `PosixSpawnOptions` builders): the eight initializers
-// are `u32` arithmetic on `base` and name nothing generic, and together they
-// are long enough. What they make is values only the `Settings<M>` literal,
-// which does name `M`, puts together -- so the inner fn returns them (an
-// array, or a plain struct), which compiles and costs one call. The stretch
-// is `width: ..` through `.rotate_left(19)` on the `scale` line -- the `^
-// 0x58` and the move of `marker` share a block with the literal -- taking
-// `base: u32` and yielding eight `u32`s, none of which the author named: the
-// note names seven by the field they land in and the last, not yet a field's
-// value, by its expression.
+// Reported: the eight field initializers. The note names the unnamed `u32`s they produce by field.
 pub fn settings_for<M>(marker: M, base: u32) -> Settings<M> {
     Settings {
         width: base.wrapping_mul(3).rotate_left(2) ^ 0x51,
@@ -1508,14 +1216,7 @@ impl Printer {
         self.errors
     }
 
-    // Flagged, smaller than it looks (a temporary the author did not name is
-    // a hand-back like any other; bun css `Printer::write_str`, 26 copies):
-    // `s.as_ref()` before, and the drop of `s` on *each* of the two ways out,
-    // depend on `S`, so the stretch can hold neither `return`: it is
-    // `self.col = ..` through the `push` and the `len()` call, it takes
-    // `self: &mut Printer` and `s: &[u8]`, and what it yields is one
-    // expression temporary -- the `usize` from `self.out.len()` that the `if`
-    // compares (`h` is dead by then). The split is `if inner(self, s) > 4096`.
+    // Reported: `self.col = ..` through `self.out.len()`, producing the `usize` the `if` tests.
     pub fn write_str<S: AsRef<[u8]>>(&mut self, s: S) -> Result<(), u32> {
         let s = s.as_ref();
         self.col = self.col.wrapping_add(s.len() as u32);
@@ -1538,11 +1239,7 @@ pub struct Ledger<T> {
     pub total: u32,
 }
 
-// Flagged: no expression anywhere calls `drop`; the two `Ledger`s `main`
-// builds run it when they go out of scope, one instantiation each. The reads
-// through `&mut self` come first and the write to `self.total` last; the
-// stretch between is `let mut sum = 0u32;` through the `let total = if ..`
-// line, taking `counts: [u32; 6]` and `floor: u32` and yielding `total: u32`.
+// Reported: nothing calls `drop` by name. The two `Ledger`s in `main` run it, one copy each.
 impl<T> Drop for Ledger<T> {
     fn drop(&mut self) {
         let counts = self.counts;
@@ -1565,8 +1262,7 @@ impl<T> Drop for Ledger<T> {
     }
 }
 
-// Quiet: the same body as `checksum`, at two concrete types, but a macro
-// wrote the function and the lint does not measure what a macro expands to.
+// Not reported: the same body as `checksum`, but a macro wrote the function.
 macro_rules! make_summer {
     ($name:ident) => {
         pub fn $name<B: AsRef<[u8]>>(bytes: B) -> u32 {
@@ -1610,10 +1306,7 @@ impl Scope {
 
 pub static REQUESTS: Scope = Scope { tag: "req", on: true };
 
-// A scoped logging macro: gated on a constant, branching before
-// `format_args!` so each argument is evaluated once. One line of it is some
-// fifty MIR statements, none of which names a parameter, all of which the
-// macro wrote.
+// A logging macro. One use expands to about fifty statements that use no parameter.
 macro_rules! trace {
     ($scope:path, $fmt:expr $(, $arg:expr)* $(,)?) => {
         if VERBOSE && $scope.visible() {
@@ -1632,13 +1325,7 @@ pub struct Conn<const TLS: bool> {
 }
 
 impl<const TLS: bool> Conn<TLS> {
-    // Quiet (R1, macro mass): every other line reads through `&mut self`, a
-    // `&mut Conn<TLS>`, so the one run of statements a stretch could be made
-    // of is what `trace!` expands to -- well past the minimum, one way in and
-    // one way out, taking nothing and yielding nothing -- and there is no
-    // source in it to move. Only statements written by hand count toward
-    // `generic-body-not-generic-min-statements`; these were written by the
-    // macro.
+    // Not reported: the only long part is the `trace!` expansion. Macro statements do not count.
     pub fn close(&mut self) -> u32 {
         trace!(REQUESTS, "close");
         if !self.open {
@@ -1649,9 +1336,7 @@ impl<const TLS: bool> Conn<TLS> {
     }
 }
 
-// Quiet: the same shape as `fold_block`, at two array lengths, but both uses
-// are `const` initializers, evaluated at compile time and never compiled
-// into the binary.
+// Not reported: both uses are `const` initializers, so no copy is compiled into the binary.
 pub const fn const_fold<const N: usize>(block: [u8; N]) -> u32 {
     let bytes = block.as_slice();
     let mut lo = 1u32;
@@ -1673,14 +1358,7 @@ fn evens(src: &[u8]) -> impl Iterator<Item = u8> + '_ {
     src.iter().copied().filter(|b| b & 1 == 0)
 }
 
-// Quiet (a value the stretch would take has a type no signature can spell):
-// `let mut acc = 17u32;` through `.rotate_left(7)` is the same in both copies
-// and long enough, but it reads `it`, made before `sink.put(0)` and so handed
-// in -- and `it` is the `impl Iterator` of `evens`, which the body sees as
-// `Filter<Copied<Iter<u8>>, {closure}>`: free of `S`, yet nothing an inner fn
-// could declare a parameter as. What lies either side of `it.next()` is under
-// the threshold on its own. (Made after `sink.put(0)` instead, `it` would be
-// the inner fn's own local and the stretch would take `src`.)
+// Not reported: the part would take `it`, whose `impl Iterator` type no signature can name.
 pub fn fold_evens<S: Sink>(sink: &mut S, src: &[u8]) -> u32 {
     let mut it = evens(src);
     sink.put(0);
@@ -1701,8 +1379,8 @@ fn main() {
     let _ = checksum("abc");
     let _ = checksum(vec![1u8, 2, 3]);
     let _ = checksum([9u8; 4]);
-    let small = Framed { payload: 1u8, header: [1, 2, 3, 4], declared_len: 6 };
-    let wide = Framed { payload: "wide", header: [4, 3, 2, 1], declared_len: 9 };
+    let small = WithHeader { payload: 1u8, header: [1, 2, 3, 4], declared_len: 6 };
+    let wide = WithHeader { payload: "wide", header: [4, 3, 2, 1], declared_len: 9 };
     let _ = small.header_word() + wide.header_word();
     let _ = fold_block([1u8, 2]);
     let _ = fold_block([1u8, 2, 3]);

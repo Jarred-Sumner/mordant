@@ -187,14 +187,14 @@ pub struct MordantConfig {
     pub parallel_params_min_fns: usize = 3,
     /// The smallest number of statements the shared part of a generic fn's
     /// body needs before `generic_body_not_generic` names the fn. The shared
-    /// part is one stretch of the body with a single entry and a single exit
-    /// that mentions no type or const parameter, and whose values in and out
-    /// have types free of those parameters. The count is of MIR statements
+    /// part is one set of the body's blocks with a single entry and a single
+    /// exit that mentions no type or const parameter, and whose values in and
+    /// out have types free of those parameters. The count is of MIR statements
     /// and terminators; storage markers and plain jumps are not counted, so
     /// a fn that only forwards its arguments stays under it.
     ///
-    /// There is no second threshold on how much of the body the stretch
-    /// covers. A stretch that passes can be moved into a non-generic inner
+    /// There is no second threshold on how much of the body the shared part
+    /// covers. A part that passes can be moved into a non-generic inner
     /// fn and replaced by one call, however large the rest of the body is.
     /// A threshold on its share of the body would only stop the lint from
     /// reporting fns that are just as easy to fix.
