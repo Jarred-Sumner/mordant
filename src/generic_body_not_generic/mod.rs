@@ -1,10 +1,8 @@
-//! Finds generic functions where a large part of the body does not use the
-//! type or const parameters. The lint below says what is reported.
+//! Finds generic functions where a large part of the body does not use the parameters.
 
 mod borrows;
 mod classify;
 mod describe;
-mod fix;
 mod instances;
 mod region;
 mod region_io;
@@ -18,6 +16,7 @@ use rustc_middle::middle::codegen_fn_attrs::CodegenFnAttrFlags;
 use rustc_middle::ty::TyCtxt;
 
 use crate::MordantConfig;
+use crate::hir_shapes::owns_signature;
 use crate::mir_flow::mir_for;
 
 use classify::classify;
@@ -30,10 +29,11 @@ rustc_session::declare_lint! {
     /// Finds a generic function where a large part of the body is the same
     /// every time it is compiled. rustc compiles the whole body once for
     /// each distinct set of concrete arguments this crate uses the function
-    /// with. Statements that do not use the type or const parameters are
-    /// compiled again each time. Move them into a separate non-generic
-    /// function and they are compiled once. The generic function keeps its
-    /// signature and calls the new function. The added cost is one call.
+    /// with. That repeats the statements that do not use the parameters.
+    /// Moving them into a separate non-generic function removes the copies
+    /// only if the compiler keeps it out of line. It usually inlines a small
+    /// one back, and release links that fold identical functions already
+    /// merge some copies. So measure each finding, largest first.
     ///
     /// Size is counted in statements of MIR, the compiler's form of the
     /// body before optimization, where one source line is usually several.
@@ -44,20 +44,16 @@ rustc_session::declare_lint! {
     /// ends at the return. Every value it reads from earlier code or
     /// produces for later code has a type without parameters. Those values
     /// become the new function's arguments and results. The finding lists
-    /// them, says when the part is in a loop, and points at one call site.
-    /// Some findings also have an edit that `cargo dylint --fix` applies.
-    /// It moves the part into a new `fn <name>_shared` after the enclosing
-    /// item and calls it in its place. The edit is given only when the part
-    /// is one run of whole statements that is certain to compile when moved.
+    /// them and points at one call site. A part in a loop is not reported.
     ///
-    /// `generic-body-not-generic-min-statements` (default 24) is the
-    /// smallest part reported, in hand-written statements. Code from a
-    /// macro adds to the printed size but not toward this minimum.
-    /// `generic-body-not-generic-min-instantiations` (default 2) is how
-    /// many argument sets this crate must use the function with: by calls,
-    /// uses as a value, and inserted `Deref` and `Drop` calls, followed
-    /// through generic callers. Calls through `dyn`, function pointers,
-    /// other crates and compile-time evaluation are not seen.
+    /// Runs only with `generic-body-not-generic-enabled = true` in
+    /// `dylint.toml`. `generic-body-not-generic-min-statements` (default 24) is
+    /// the smallest part reported, in hand-written statements. Code from a
+    /// macro adds to the printed size only. The crate must use the function
+    /// with `generic-body-not-generic-min-instantiations` (default 2) argument
+    /// sets. Calls, uses as a value, and inserted `Deref` and `Drop` calls
+    /// count, followed through generic callers. Calls through `dyn`, function
+    /// pointers, other crates and compile-time evaluation are not seen.
     ///
     /// Not reported: a part entered under a branch that a const parameter
     /// decides, or one that would take a value computed from a const
@@ -116,10 +112,19 @@ fn candidate_fn(tcx: TyCtxt<'_>, def: LocalDefId) -> bool {
 impl<'tcx> LateLintPass<'tcx> for GenericBodyNotGeneric {
     fn check_crate_post(&mut self, cx: &LateContext<'tcx>) {
         let tcx = cx.tcx;
-        // Count instantiations, which reads every body, only if needed.
-        let mut findings: Vec<Finding> = tcx
+        let candidates: Vec<LocalDefId> = tcx
             .hir_body_owners()
             .filter(|&def| candidate_fn(tcx, def))
+            .collect();
+        if candidates.is_empty() {
+            return;
+        }
+        // Count uses first, then classify only functions used with enough argument sets.
+        let counts = count_instantiations(tcx);
+        let sets = |def: LocalDefId| counts.concrete.get(&def).map_or(0, |s| s.len());
+        let mut findings: Vec<Finding> = candidates
+            .into_iter()
+            .filter(|&def| sets(def) >= self.min_instantiations)
             .filter_map(|def| {
                 let body = mir_for(tcx, def)?;
                 let (facts, total) = classify(tcx, &body);
@@ -133,25 +138,19 @@ impl<'tcx> LateLintPass<'tcx> for GenericBodyNotGeneric {
                     size: part.size,
                     reads: render_locals(cx, def, &body, &part.params, &part.blocks),
                     produces: render_locals(cx, def, &body, &part.returns, &after),
-                    in_loop: part.in_loop,
                     other_parts: part.other_parts,
                     total,
-                    signature_help: conversion_help(&body, &only_conversions(tcx, &body)),
-                    edit: fix::extraction_edit(cx, def, &body, &part, site),
+                    // Suggest a new signature only where this crate may change it.
+                    signature_help: owns_signature(cx, def)
+                        .then(|| conversion_help(&body, &only_conversions(tcx, &body)))
+                        .flatten(),
                 })
             })
             .collect();
-        if findings.is_empty() {
-            return;
-        }
-        let counts = count_instantiations(tcx);
         findings.sort_by_key(|s| tcx.def_span(s.def).lo());
         for finding in &findings {
-            let sets = counts.concrete.get(&finding.def).map_or(0, |s| s.len());
-            if sets >= self.min_instantiations {
-                let site = counts.first_site.get(&finding.def).copied();
-                report(cx, finding, sets, site, self.min_statements);
-            }
+            let site = counts.first_site.get(&finding.def).copied();
+            report(cx, finding, sets(finding.def), site, self.min_statements);
         }
     }
 }

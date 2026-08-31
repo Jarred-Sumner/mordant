@@ -19,7 +19,7 @@ pub(super) enum SourceSpan {
 
 /// Moves one MIR item's span to its innermost macro call site inside
 /// `body_span`, in `body_span`'s context. A desugaring stays in place.
-pub(super) fn body_position(mut span: Span, body_span: Span) -> Option<Span> {
+fn body_position(mut span: Span, body_span: Span) -> Option<Span> {
     loop {
         let in_macro = span.from_expansion()
             && matches!(span.ctxt().outer_expn_data().kind, ExpnKind::Macro(..));
@@ -28,6 +28,16 @@ pub(super) fn body_position(mut span: Span, body_span: Span) -> Option<Span> {
         }
         span = span.parent_callsite()?;
     }
+}
+
+/// A block's, a loop's or a unit fn's `()`: its span is the whole construct, whose other items
+/// are not part of it.
+fn unit_result(statement: &mir::Statement<'_>) -> bool {
+    matches!(
+        &statement.kind,
+        mir::StatementKind::Assign(assign)
+            if matches!(&assign.1, mir::Rvalue::Use(mir::Operand::Constant(c), _) if c.ty().is_unit())
+    )
 }
 
 /// The smallest span covering the part's counted items, after two corrections for MIR spans
@@ -40,12 +50,9 @@ pub(super) fn source_span<'tcx>(
 ) -> Option<SourceSpan> {
     let body_span = tcx.hir_body_owned_by(def).value.span;
     let mut inside: Vec<Span> = Vec::new();
+    let mut written: Vec<Span> = Vec::new();
     let mut outside: Vec<(Span, bool)> = Vec::new();
-    let mut places = PlaceParams {
-        tcx,
-        body,
-        found: false,
-    };
+    let mut places = PlaceParams::new(tcx, body);
     for (block, data) in body.basic_blocks.iter_enumerated() {
         if data.is_cleanup {
             continue;
@@ -57,6 +64,9 @@ pub(super) fn source_span<'tcx>(
             {
                 if in_part {
                     inside.push(span);
+                    if !unit_result(statement) {
+                        written.push(span);
+                    }
                 } else {
                     outside.push((span, places.dependent_statement(statement)));
                 }
@@ -68,14 +78,15 @@ pub(super) fn source_span<'tcx>(
         {
             if in_part {
                 inside.push(span);
+                written.push(span);
             } else {
                 outside.push((span, places.dependent_terminator(terminator)));
             }
         }
     }
     let placed = inside.len();
-    let by_position = |s: &Span| (s.lo(), std::cmp::Reverse(s.hi()));
-    let first = *inside.iter().min_by_key(|s| by_position(s))?;
+    inside.sort_by_key(|s| (s.lo(), std::cmp::Reverse(s.hi())));
+    let first = *inside.first()?;
 
     // Equal spans: one expression compiled to both sides (a `for` head).
     let shared: FxHashSet<(BytePos, BytePos)> = inside.iter().map(|s| (s.lo(), s.hi())).collect();
@@ -92,20 +103,42 @@ pub(super) fn source_span<'tcx>(
         let from = outside.partition_point(|(s, _)| s.lo() < item.lo());
         least_end[from] <= item.hi()
     };
+    // An outside item inside a written item's span (the `0` of `buf[4] = src[0]`) does not
+    // split the covering span. A unit `()` covering a construct still splits after its items.
+    written.sort_by_key(|s| s.lo());
+    let mut far = BytePos(0);
+    let reach: Vec<BytePos> = written
+        .iter()
+        .map(|s| {
+            far = far.max(s.hi());
+            far
+        })
+        .collect();
+    let covered: Vec<bool> = outside
+        .iter()
+        .map(|(s, _)| {
+            let upto = written.partition_point(|w| w.lo() <= s.lo());
+            upto > 0 && s.hi() <= reach[upto - 1]
+        })
+        .collect();
     inside.retain(|item| !names_more(item));
-    inside.sort_by_key(by_position);
     let Some(&first_kept) = inside.first() else {
         return Some(SourceSpan::Start(first));
     };
 
-    // Source order is not control-flow order: a `for` pattern is bound after the dependent
-    // `next()`. So split at each dependent outside item and keep the segment with most items.
-    let split_points: Vec<BytePos> = outside
+    // Items do not run in source order. A pattern is bound after its input. A loop's `()` spans
+    // the loop but is assigned after it. So cut before dependent items and after the others.
+    let starts: Vec<BytePos> = outside.iter().filter(|o| o.1).map(|o| o.0.lo()).collect();
+    let mut ends: Vec<BytePos> = outside
         .iter()
-        .filter(|(_, dependent)| *dependent)
-        .map(|(s, _)| s.lo())
+        .zip(&covered)
+        .filter(|(o, covered)| !o.1 && !**covered)
+        .map(|(o, _)| o.0.hi())
         .collect();
-    let segment_of = |item: &Span| split_points.partition_point(|&at| at < item.lo());
+    ends.sort_unstable();
+    let segment_of = |item: &Span| {
+        starts.partition_point(|&at| at < item.lo()) + ends.partition_point(|&at| at <= item.lo())
+    };
     let mut segments: Vec<(usize, BytePos, BytePos)> = Vec::new();
     let mut open = None;
     for item in &inside {
@@ -128,10 +161,15 @@ pub(super) fn source_span<'tcx>(
                 if segment.0 > best.0 { segment } else { best }
             });
     debug_assert!(
-        !outside
+        outside
             .iter()
-            .any(|(s, dependent)| *dependent && lo <= s.lo() && s.hi() <= hi),
-        "a dependent item inside the part's span"
+            .zip(&covered)
+            .all(|((s, dependent), covered)| {
+                s.lo() < lo
+                    || hi < s.hi()
+                    || (!dependent && (*covered || inside.iter().any(|i| s.contains(*i))))
+            }),
+        "an outside item neither in nor around a part item is inside the part's span"
     );
     Some(if held * 2 >= placed {
         SourceSpan::Whole(body_span.with_lo(lo).with_hi(hi))

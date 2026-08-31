@@ -14,14 +14,46 @@ use super::classify::add_locals_computed_from;
 use super::region_io::{LocalFacts, block_live, pointer_copies_of};
 use crate::mir_flow::reads_any;
 
-/// Whether a value of this type can hold a reference or raw pointer to a
-/// local, judged by its lifetimes and type arguments, not private fields.
-fn may_hold_address(ty: Ty<'_>) -> bool {
-    ty.walk().any(|arg| match arg.kind() {
-        GenericArgKind::Lifetime(_) => true,
-        GenericArgKind::Type(ty) => ty.is_raw_ptr(),
-        GenericArgKind::Const(_) => false,
-    })
+/// Whether a value of this type can hold a reference or raw pointer to a local. True if it has a
+/// lifetime, or a raw pointer in it or in a field (`Iov`, `NonNull`, `RawWaker`). Fields of a
+/// foreign type with a `Drop` impl are skipped: it frees what they point to (`Vec<u8>`, `Rc`).
+fn may_hold_address<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    typing_env: ty::TypingEnv<'tcx>,
+    ty: Ty<'tcx>,
+) -> bool {
+    if has_lifetime(ty) {
+        return true;
+    }
+    let mut pending = vec![ty];
+    let mut seen: FxHashSet<Ty<'tcx>> = FxHashSet::default();
+    while let Some(ty) = pending.pop() {
+        for arg in ty.walk() {
+            let GenericArgKind::Type(inner) = arg.kind() else {
+                continue;
+            };
+            if !seen.insert(inner) {
+                continue;
+            }
+            if seen.len() > 4096 {
+                return true;
+            }
+            match *inner.kind() {
+                ty::RawPtr(..) => return true,
+                ty::Adt(def, _) if def.has_dtor(tcx) && !def.did().is_local() => {}
+                ty::Adt(def, args) => {
+                    for field in def.all_fields() {
+                        match tcx.try_normalize_erasing_regions(typing_env, field.ty(tcx, args)) {
+                            Ok(ty) => pending.push(ty),
+                            Err(_) => return true,
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    false
 }
 
 /// Whether a callee given a value of this type could store a reference
@@ -45,17 +77,17 @@ fn may_take_address<'tcx>(
         }
         match *ty.kind() {
             ty::RawPtr(pointee, _) => {
-                if may_hold_address(pointee) {
+                if may_hold_address(tcx, typing_env, pointee) {
                     return true;
                 }
             }
             ty::Ref(_, pointee, mutability) if writable && mutability.is_mut() => {
-                if may_hold_address(pointee) {
+                if may_hold_address(tcx, typing_env, pointee) {
                     return true;
                 }
             }
             ty::Ref(_, pointee, _) => {
-                if may_hold_address(pointee) {
+                if may_hold_address(tcx, typing_env, pointee) {
                     if !pointee.is_freeze(tcx, typing_env) {
                         return true;
                     }
@@ -143,9 +175,13 @@ pub(super) fn copies_borrow<'tcx>(
 }
 
 /// `may_hold_address`, or a `Box` (`Derefer` copies one from behind a `&`).
-pub(super) fn can_hold_borrow(body: &mir::Body<'_>, local: Local) -> bool {
+pub(super) fn can_hold_borrow<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    body: &mir::Body<'tcx>,
+    local: Local,
+) -> bool {
     let ty = body.local_decls[local].ty;
-    may_hold_address(ty) || ty.boxed_ty().is_some()
+    may_hold_address(tcx, body.typing_env(tcx), ty) || ty.boxed_ty().is_some()
 }
 
 pub(super) struct BorrowHolders {
@@ -276,11 +312,12 @@ pub(super) fn borrow_holders<'tcx>(
     of: &DenseBitSet<Local>,
 ) -> BorrowHolders {
     let typing_env = body.typing_env(tcx);
-    let can_hold = |place: &Place<'tcx>| !place.is_indirect() && can_hold_borrow(body, place.local);
+    let can_hold =
+        |place: &Place<'tcx>| !place.is_indirect() && can_hold_borrow(tcx, body, place.local);
     let storable = |operand: &Operand<'tcx>| {
         let moved_away = matches!(operand, Operand::Move(place)
             if place.projection.is_empty()
-                && !may_hold_address(body.local_decls[place.local].ty));
+                && !may_hold_address(tcx, typing_env, body.local_decls[place.local].ty));
         !moved_away && may_take_address(tcx, typing_env, operand.ty(&body.local_decls, tcx))
     };
     let empty = DenseBitSet::new_empty(body.local_decls.len());
@@ -415,8 +452,9 @@ fn has_lifetime(ty: Ty<'_>) -> bool {
 }
 
 /// A `&T` where `T` holds no address: it borrows a parameter as shared only.
-fn shared_ref_only(ty: Ty<'_>) -> bool {
-    matches!(*ty.kind(), ty::Ref(_, pointee, mir::Mutability::Not) if !may_hold_address(pointee))
+fn shared_ref_only<'tcx>(tcx: TyCtxt<'tcx>, typing_env: ty::TypingEnv<'tcx>, ty: Ty<'tcx>) -> bool {
+    matches!(*ty.kind(), ty::Ref(_, pointee, mir::Mutability::Not)
+        if !may_hold_address(tcx, typing_env, pointee))
 }
 
 pub(super) struct AfterExit<'a, 'tcx> {
@@ -467,6 +505,7 @@ impl AfterExit<'_, '_> {
         returns: &DenseBitSet<Local>,
     ) -> bool {
         let body = self.body;
+        let typing_env = body.typing_env(self.tcx);
         let borrowing_results: Vec<Local> = returns
             .iter()
             .filter(|&local| has_lifetime(body.local_decls[local].ty))
@@ -485,7 +524,7 @@ impl AfterExit<'_, '_> {
                     continue;
                 }
                 let exclusive = exclusive_locals.contains(param)
-                    || !shared_ref_only(body.local_decls[result].ty);
+                    || !shared_ref_only(self.tcx, typing_env, body.local_decls[result].ty);
                 let (blocks, reenters) = after.get_or_insert_with(|| self.blocks_after_exit());
                 if self.used_while_borrowed(blocks, *reenters, param, result, exclusive) {
                     return true;

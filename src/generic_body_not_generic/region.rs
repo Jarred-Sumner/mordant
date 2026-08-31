@@ -7,9 +7,9 @@ use rustc_index::bit_set::DenseBitSet;
 use rustc_index::{IndexSlice, IndexVec};
 use rustc_middle::mir::visit::Visitor;
 use rustc_middle::mir::{self, BasicBlock, Local, Location, Rvalue, StatementKind, TerminatorKind};
-use rustc_middle::ty::{TyCtxt, TypeVisitableExt};
+use rustc_middle::ty::TyCtxt;
 
-use super::classify::{BlockFacts, per_copy_consts};
+use super::classify::{BlockFacts, locals_using_param, per_copy_consts};
 use super::region_io::{LocalFacts, inner_signature};
 use crate::mir_flow::{FlowGraph, local_name, reaching, reads_any};
 
@@ -17,36 +17,29 @@ use crate::mir_flow::{FlowGraph, local_name, reaching, reads_any};
 /// statements and an `inner_signature`: it could become a separate fn.
 #[derive(Clone, Debug)]
 pub(super) struct SharedPart {
-    pub(super) entry: BasicBlock,
-    /// The one node every edge out goes to. `None`: the fn's `return`.
-    pub(super) exit: Option<BasicBlock>,
     pub(super) blocks: DenseBitSet<BasicBlock>,
     /// Counted items, the printed size. `hand_written` ranks parts.
     pub(super) size: usize,
     hand_written: usize,
     pub(super) params: Vec<Local>,
     pub(super) returns: Vec<Local>,
-    pub(super) in_loop: bool,
     pub(super) other_parts: usize,
 }
 
 const MAX_OTHER_PARTS: usize = 3;
 
-const MAX_IO_CHECKS_PER_ROUND: usize = 32;
+// Each check is cheap. A limit of 32 dropped a real finding (ui test `tail_after_refused_head`).
+const MAX_IO_CHECKS_PER_ROUND: usize = 256;
 
 /// In the flow graph, nothing dependent, no local whose type has a
 /// parameter, and no tail call (which needs the caller's own signature).
 fn usable_blocks<'tcx>(
+    tcx: TyCtxt<'tcx>,
     body: &mir::Body<'tcx>,
     facts: &IndexSlice<BasicBlock, BlockFacts>,
     flow: &FlowGraph,
 ) -> DenseBitSet<BasicBlock> {
-    let mut generic = DenseBitSet::new_empty(body.local_decls.len());
-    for (local, decl) in body.local_decls.iter_enumerated() {
-        if decl.ty.has_non_region_param() {
-            generic.insert(local);
-        }
-    }
+    let generic = locals_using_param(tcx, body);
     let mut usable = DenseBitSet::new_empty(body.basic_blocks.len());
     for (block, data) in body.basic_blocks.iter_enumerated() {
         if !flow.contains(block) || facts[block].dependent != 0 {
@@ -257,6 +250,7 @@ impl<'a> EntryCandidates<'a> {
 
     /// Every candidate from `entry`, smallest first. A single exit is on every path from the
     /// entry to EXIT (a post-dominator), so the exits tried are the nearest one, then its own.
+    /// An exit with a path back to the entry is refused: the new call would run in a loop.
     fn collect(
         &mut self,
         body: &mir::Body<'_>,
@@ -268,6 +262,7 @@ impl<'a> EntryCandidates<'a> {
         self.add(entry);
         let mut passed = Vec::new();
         let mut previous: Option<BasicBlock> = None;
+        let mut reaches_entry: Option<DenseBitSet<BasicBlock>> = None;
         let chain: Vec<BasicBlock> = self.flow.ipdom_chain(entry).collect();
         for exit in chain {
             if let Some(previous) = previous
@@ -286,7 +281,11 @@ impl<'a> EntryCandidates<'a> {
                 .preds(exit)
                 .iter()
                 .any(|&pred| self.in_part.contains(pred) && ends_in_overflow_check(body, pred));
-            if !returns_pair {
+            let in_loop = exit != self.flow.exit()
+                && reaches_entry
+                    .get_or_insert_with(|| reaching(body, entry))
+                    .contains(exit);
+            if !returns_pair && !in_loop {
                 passed.extend(self.candidate(exit, min_statements));
             }
             previous = Some(exit);
@@ -393,14 +392,11 @@ impl Search<'_, '_, '_> {
             match inner_signature(self.tcx, self.body, locals, &blocks, entry, exit) {
                 Some(io) => {
                     found = Some(SharedPart {
-                        entry,
-                        exit,
                         blocks,
                         size: candidate.size,
                         hand_written: candidate.hand_written,
                         params: io.params,
                         returns: io.returns,
-                        in_loop: false,
                         other_parts: 0,
                     });
                     low = index + 1;
@@ -430,7 +426,7 @@ pub(super) fn best_shared_part<'tcx>(
         return None;
     }
     let flow = FlowGraph::new(body);
-    let usable = usable_blocks(body, facts, &flow);
+    let usable = usable_blocks(tcx, body, facts, &flow);
     let usable_total: usize = usable.iter().map(|b| facts[b].hand_written as usize).sum();
     if usable_total < min_statements {
         return None;
@@ -456,8 +452,5 @@ pub(super) fn best_shared_part<'tcx>(
         part.other_parts += 1;
         excluded.union(&other.blocks);
     }
-    part.in_loop = part
-        .exit
-        .is_some_and(|exit| reaching(body, part.entry).contains(exit));
     Some(part)
 }

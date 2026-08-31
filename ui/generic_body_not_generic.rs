@@ -1,7 +1,8 @@
 // One case per function. Each comment says the shape and whether it is reported, with the reason.
 // "The part" is the run of statements the lint would move into a separate non-generic function.
 
-// Reported: only `as_ref` and the drop of `bytes` use `B`. Extra help: it could take `&[u8]`.
+// Reported: only `as_ref` and the drop of `bytes` use `B`. No help to take `&[u8]` instead:
+// `checksum` is `pub`, so its signature is not this crate's to change.
 pub fn checksum<B: AsRef<[u8]>>(bytes: B) -> u32 {
     let src = bytes.as_ref();
     let mut acc = 17u32;
@@ -86,6 +87,26 @@ pub fn relay<S: AsRef<str>>(text: S) -> u32 {
     digits(text).wrapping_add(1)
 }
 
+// Reported, with the extra help: private, and uses `S` only to get a `&str`, so it could take `&str`.
+fn digits_priv<S: AsRef<str>>(text: S) -> u32 {
+    let s = text.as_ref();
+    let mut vowels = 0u32;
+    let mut longest = 0u32;
+    let mut current = 0u32;
+    for ch in s.bytes() {
+        if matches!(ch, b'a' | b'e' | b'i' | b'o' | b'u') {
+            vowels += 1;
+            current += 1;
+            if current > longest {
+                longest = current;
+            }
+        } else {
+            current = 0;
+        }
+    }
+    (vowels << 8) | (longest & 0xff)
+}
+
 pub trait HasName {
     fn name(&self) -> &str;
 }
@@ -112,7 +133,7 @@ impl HasName for Cy {
     }
 }
 
-// Reported, with the extra help: `tally` uses `X` only to get a `&str`, so it could take `&str`.
+// Reported. `tally` uses `X` only to get a `&str`, but it is `pub`, so no help to take `&str`.
 pub fn tally<X: HasName>(x: X) -> u32 {
     let s = x.name();
     let bytes = s.as_bytes();
@@ -310,7 +331,7 @@ impl Sink for Last {
     }
 }
 
-// Reported: the part is the loop body after `sink.put(b)`, so the note says it runs per iteration.
+// Not reported: the part is the loop body after `sink.put(b)`, so a call would run per iteration.
 pub fn drain<S: Sink>(sink: &mut S, src: &[u8]) -> u32 {
     let mut acc = 5381u32;
     for &b in src {
@@ -537,6 +558,87 @@ pub fn weigh<B: AsRef<[u8]>>(bytes: B) -> u32 {
     bytes.as_ref().iter().fold(5381, step)
 }
 
+// Reported as one part over all three loops, so the middle line does not split it. Its closures
+// capture nothing, take and return plain integers, and their bodies do not name `S`.
+pub fn map_in_part<S: Sink>(sink: &mut S, src: &[u8]) -> u32 {
+    sink.put(0);
+    let mut acc = 17u32;
+    let mut run = 0u32;
+    let mut odd = 0u32;
+    for &b in src {
+        let v = u32::from(b);
+        acc = acc.wrapping_mul(31).wrapping_add(v);
+        run = if v & 2 == 0 { run + 1 } else { 0 };
+        odd ^= v.rotate_left(run & 7);
+        acc ^= odd >> 3;
+        acc = acc.wrapping_add(run);
+    }
+    let n = src.iter().map(|b| b ^ 0x55).fold(0u32, |n, v| n.wrapping_mul(33) ^ u32::from(v));
+    for &b in src {
+        let v = u32::from(b);
+        acc = acc.wrapping_mul(37).wrapping_add(v ^ n);
+        run = if v & 4 == 0 { run + 2 } else { 1 };
+        odd ^= v.rotate_left(run & 3);
+        acc ^= odd >> 5;
+        acc = acc.wrapping_add(run ^ odd);
+    }
+    acc ^ run ^ odd ^ n
+}
+
+// Reported as two parts, the loops before and after the middle line. Its first closure captures
+// `key`, whose type uses `K`, so that line is compiled once per copy.
+pub fn map_captures_generic<S: Sink, K: AsRef<[u8]>>(sink: &mut S, key: &K, src: &[u8]) -> u32 {
+    sink.put(0);
+    let mut acc = 17u32;
+    let mut run = 0u32;
+    let mut odd = 0u32;
+    for &b in src {
+        let v = u32::from(b);
+        acc = acc.wrapping_mul(31).wrapping_add(v);
+        run = if v & 2 == 0 { run + 1 } else { 0 };
+        odd ^= v.rotate_left(run & 7);
+        acc ^= odd >> 3;
+        acc = acc.wrapping_add(run);
+    }
+    let n = src.iter().map(|b| b ^ key.as_ref()[0]).fold(0u32, |n, v| n.wrapping_mul(33) ^ u32::from(v));
+    for &b in src {
+        let v = u32::from(b);
+        acc = acc.wrapping_mul(37).wrapping_add(v ^ n);
+        run = if v & 4 == 0 { run + 2 } else { 1 };
+        odd ^= v.rotate_left(run & 3);
+        acc ^= odd >> 5;
+        acc = acc.wrapping_add(run ^ odd);
+    }
+    acc ^ run ^ odd ^ n
+}
+
+// Reported as two parts, like `map_captures_generic`. The closure captures nothing and takes and
+// returns plain integers, but its body names `S`, so each copy differs.
+pub fn map_body_names_param<S: Sink>(sink: &mut S, src: &[u8]) -> u32 {
+    sink.put(0);
+    let mut acc = 17u32;
+    let mut run = 0u32;
+    let mut odd = 0u32;
+    for &b in src {
+        let v = u32::from(b);
+        acc = acc.wrapping_mul(31).wrapping_add(v);
+        run = if v & 2 == 0 { run + 1 } else { 0 };
+        odd ^= v.rotate_left(run & 7);
+        acc ^= odd >> 3;
+        acc = acc.wrapping_add(run);
+    }
+    let n = src.iter().map(|b| b ^ std::mem::size_of::<S>() as u8).fold(0u32, |n, v| n.wrapping_mul(33) ^ u32::from(v));
+    for &b in src {
+        let v = u32::from(b);
+        acc = acc.wrapping_mul(37).wrapping_add(v ^ n);
+        run = if v & 4 == 0 { run + 2 } else { 1 };
+        odd ^= v.rotate_left(run & 3);
+        acc ^= odd >> 5;
+        acc = acc.wrapping_add(run ^ odd);
+    }
+    acc ^ run ^ odd ^ n
+}
+
 pub struct Sealed<T> {
     pub token: T,
     pub table: [u8; 8],
@@ -612,6 +714,44 @@ pub fn restamp<S: Sink>(sink: &mut S, rec: &mut Record, weight: u32) {
     rec.flags = rec.flags.wrapping_add(rec.total ^ rec.count);
     sink.put(name.first().copied().unwrap_or(0));
     rec.sent += 1;
+}
+
+// Reported: the tail from `rec.sent += 1` through the loop. The lines of `recount` come first.
+// Checking their many refused candidates must not use up the limit before the tail is reached.
+pub fn tail_after_refused_head<S: Sink>(sink: &mut S, rec: &mut Record, weight: u32, src: &[u8]) -> u32 {
+    let name: &[u8] = &rec.name;
+    sink.put(rec.sent as u8);
+    let len = name.len() as u32;
+    let first = u32::from(name.first().copied().unwrap_or(0));
+    let last = u32::from(name.last().copied().unwrap_or(0));
+    rec.count = rec.count.wrapping_add(1);
+    rec.total = rec.total.wrapping_add(len.wrapping_mul(weight));
+    let mix = (first << 8 | last).rotate_left(rec.count & 31);
+    rec.flags ^= mix;
+    rec.flags = rec.flags.wrapping_mul(0x9e37_79b9) ^ weight;
+    if rec.flags & 1 == 0 {
+        rec.total = rec.total.rotate_left(3);
+    } else {
+        rec.count = rec.count.wrapping_add(len & 3);
+    }
+    rec.flags = rec.flags.wrapping_add(rec.total ^ rec.count);
+    sink.put(last as u8);
+    sink.put(name.len() as u8);
+    rec.sent += 1;
+    let mut acc = 17u32;
+    let mut run = 0u32;
+    for byte in src {
+        let v = u32::from(*byte);
+        acc = acc.wrapping_mul(31).wrapping_add(v);
+        if v & 1 == 0 {
+            run += 1;
+        } else {
+            run = 0;
+        }
+        acc ^= run << 3;
+    }
+    sink.put(acc as u8);
+    (acc ^ (src.len() as u32)).rotate_left(7)
 }
 
 pub struct Cursor {
@@ -970,6 +1110,140 @@ pub fn own_view<E: Emit>(out: &mut E, seed: u32) {
     ];
     let view = &buf[..n];
     out.emit(view);
+}
+
+#[repr(C)]
+pub struct Iov {
+    pub base: *mut u8,
+    pub len: usize,
+}
+
+pub struct Extent {
+    pub first: usize,
+    pub len: usize,
+}
+
+pub trait EmitRaw {
+    fn emit_iov(&mut self, iov: &Iov, ready: usize);
+    fn emit_non_null(&mut self, bytes: std::ptr::NonNull<[u8; 8]>, len: usize);
+    fn emit_waker(&mut self, waker: std::task::RawWaker, len: usize);
+    fn emit_extent(&mut self, extent: &Extent, ready: usize);
+}
+
+impl EmitRaw for Count {
+    fn emit_iov(&mut self, iov: &Iov, ready: usize) {
+        self.0 += (iov.len + ready) as u32;
+    }
+    fn emit_non_null(&mut self, _: std::ptr::NonNull<[u8; 8]>, len: usize) {
+        self.0 += len as u32;
+    }
+    fn emit_waker(&mut self, _: std::task::RawWaker, len: usize) {
+        self.0 += len as u32;
+    }
+    fn emit_extent(&mut self, extent: &Extent, ready: usize) {
+        self.0 += (extent.first + extent.len + ready) as u32;
+    }
+}
+
+impl EmitRaw for Last {
+    fn emit_iov(&mut self, iov: &Iov, ready: usize) {
+        self.0 = (iov.len + ready) as u8;
+    }
+    fn emit_non_null(&mut self, _: std::ptr::NonNull<[u8; 8]>, len: usize) {
+        self.0 = len as u8;
+    }
+    fn emit_waker(&mut self, _: std::task::RawWaker, len: usize) {
+        self.0 = len as u8;
+    }
+    fn emit_extent(&mut self, extent: &Extent, ready: usize) {
+        self.0 = (extent.len + ready) as u8;
+    }
+}
+
+// Not reported: the part would return `iov`, whose `base` field is the address of `buf`, a local made inside the part.
+pub fn own_iov<E: EmitRaw>(out: &mut E, seed: u32) {
+    let x = seed.wrapping_mul(0x9e37_79b9);
+    let y = x.rotate_left(7) ^ seed;
+    let z = y.swap_bytes().wrapping_add(x);
+    let n = (z & 7) as usize;
+    let mut buf = [
+        x as u8,
+        y as u8,
+        z as u8,
+        (x ^ y) as u8,
+        (y & z) as u8,
+        (x | z) as u8,
+        !(x as u8),
+        (x ^ y ^ z) as u8,
+    ];
+    let iov = Iov { base: buf.as_mut_ptr(), len: n };
+    let ready = iov.len.min(4);
+    out.emit_iov(&iov, ready);
+}
+
+// Not reported: the part would return `bytes`, a `NonNull` that is the address of `buf`, a local made inside the part.
+pub fn own_non_null<E: EmitRaw>(out: &mut E, seed: u32) {
+    let x = seed.wrapping_mul(0x9e37_79b9);
+    let y = x.rotate_left(7) ^ seed;
+    let z = y.swap_bytes().wrapping_add(x);
+    let n = (z & 7) as usize;
+    let mut buf = [
+        x as u8,
+        y as u8,
+        z as u8,
+        (x ^ y) as u8,
+        (y & z) as u8,
+        (x | z) as u8,
+        !(x as u8),
+        (x ^ y ^ z) as u8,
+    ];
+    let bytes = std::ptr::NonNull::from(&mut buf);
+    out.emit_non_null(bytes, n);
+}
+
+static IDLE: std::task::RawWakerVTable =
+    std::task::RawWakerVTable::new(|data| std::task::RawWaker::new(data, &IDLE), |_| {}, |_| {}, |_| {});
+
+// Not reported: the part would return `waker`, which keeps the address of `buf` in a private field.
+// `RawWaker` is from another crate but has no `Drop` impl, so it does not own what it points to.
+pub fn own_waker<E: EmitRaw>(out: &mut E, seed: u32) {
+    let x = seed.wrapping_mul(0x9e37_79b9);
+    let y = x.rotate_left(7) ^ seed;
+    let z = y.swap_bytes().wrapping_add(x);
+    let n = (z & 7) as usize;
+    let buf = [
+        x as u8,
+        y as u8,
+        z as u8,
+        (x ^ y) as u8,
+        (y & z) as u8,
+        (x | z) as u8,
+        !(x as u8),
+        (x ^ y ^ z) as u8,
+    ];
+    let waker = std::task::RawWaker::new(buf.as_ptr().cast(), &IDLE);
+    out.emit_waker(waker, n);
+}
+
+// Reported: the part borrows `buf` but returns `extent`, whose integer fields cannot hold that address.
+pub fn own_extent<E: EmitRaw>(out: &mut E, seed: u32) {
+    let x = seed.wrapping_mul(0x9e37_79b9);
+    let y = x.rotate_left(7) ^ seed;
+    let z = y.swap_bytes().wrapping_add(x);
+    let n = (z & 7) as usize;
+    let buf = [
+        x as u8,
+        y as u8,
+        z as u8,
+        (x ^ y) as u8,
+        (y & z) as u8,
+        (x | z) as u8,
+        !(x as u8),
+        (x ^ y ^ z) as u8,
+    ];
+    let extent = Extent { first: usize::from(buf[0]), len: buf[..n].len() };
+    let ready = extent.len.min(4);
+    out.emit_extent(&extent, ready);
 }
 
 // Not reported: the borrow of `buf` is pushed into `parts`, which is read after the part.
@@ -1375,6 +1649,78 @@ pub fn fold_evens<S: Sink>(sink: &mut S, src: &[u8]) -> u32 {
     acc
 }
 
+pub struct Row {
+    pub a: u32,
+    pub b: u32,
+    pub c: u32,
+}
+
+// Reported: the `else` arm uses `S`, so the part is the `if let` block. The note starts at that
+// block, not at `Some(row)`: `row` is bound after `rows.get`, which the part only reads.
+pub fn hash_row<S: Sink>(sink: &mut S, rows: &[Row], key: u32) -> u32 {
+    let mut acc = key;
+    if let Some(row) = rows.get(key as usize) {
+        let v = row.a.rotate_left(3);
+        acc = acc.wrapping_mul(31).wrapping_add(v);
+        acc ^= acc >> 7;
+        acc = acc.wrapping_add(row.b | 1);
+        acc = acc.rotate_left(5);
+        acc ^= row.c.wrapping_mul(0x9e37_79b9);
+        acc = acc.wrapping_sub(v >> 3);
+        acc ^= acc >> 11;
+        acc = acc.wrapping_mul(0x85eb_ca6b);
+        acc ^= acc >> 13;
+        acc = acc.wrapping_add(row.a ^ row.b);
+        acc ^= acc >> 16;
+        acc = acc.rotate_left(row.c & 31);
+        acc ^= 0x5555_aaaa;
+    } else {
+        sink.put(0);
+    }
+    sink.put(acc as u8);
+    acc
+}
+
+pub struct Dims {
+    pub w: u32,
+    pub h: u32,
+}
+
+impl Dims {
+    pub fn split(&self) -> (u32, u32) {
+        (self.w, self.h)
+    }
+}
+
+pub struct Canvas<T> {
+    pub tag: T,
+    pub dims: Dims,
+}
+
+impl<T> Canvas<T> {
+    // Reported: `self.dims.split()` reads `self`, a `&Canvas<T>`, so the part only reads its
+    // result. The note starts at `w.rotate_left(3)`, not at `(w, h)`, which is bound after it.
+    pub fn area<S: Sink>(&self, sink: &mut S) -> u32 {
+        let (w, h) = self.dims.split();
+        let mut acc = w.rotate_left(3);
+        acc = acc.wrapping_mul(31).wrapping_add(h);
+        acc ^= acc >> 7;
+        acc = acc.wrapping_add(h | 1);
+        acc = acc.rotate_left(5);
+        acc ^= w.wrapping_mul(0x9e37_79b9);
+        acc = acc.wrapping_sub(h >> 3);
+        acc ^= acc >> 11;
+        acc = acc.wrapping_mul(0x85eb_ca6b);
+        acc ^= acc >> 13;
+        acc = acc.wrapping_add(w ^ h);
+        acc ^= acc >> 16;
+        acc = acc.rotate_left(h & 31);
+        acc ^= 0x5555_aaaa;
+        sink.put(acc as u8);
+        acc
+    }
+}
+
 fn main() {
     let _ = checksum("abc");
     let _ = checksum(vec![1u8, 2, 3]);
@@ -1386,6 +1732,7 @@ fn main() {
     let _ = fold_block([1u8, 2, 3]);
     let _ = relay("12a3");
     let _ = relay(String::from("45"));
+    let _ = digits_priv("12a3") + digits_priv(String::from("45"));
     let _ = tally(Ann) + tally(Bob) + tally(Cy);
     let _ = wide_sum::<true>(b"wide") + wide_sum::<false>(b"narrow");
     let _ = arm_sum::<true>(b"this") + arm_sum::<false>(b"that");
@@ -1420,6 +1767,9 @@ fn main() {
     let _ = trailing_spaces("b   ");
     let _ = weigh("w");
     let _ = weigh([1u8]);
+    let _ = map_in_part(&mut count, b"map") ^ map_in_part(&mut last, b"map");
+    let _ = map_captures_generic(&mut count, b"k", b"map") ^ map_captures_generic(&mut last, &vec![7u8], b"map");
+    let _ = map_body_names_param(&mut count, b"map") ^ map_body_names_param(&mut last, b"map");
     let sealed = Sealed { token: 3u8, table: [1, 2, 3, 4, 5, 6, 7, 8], seed: 5, word: 9 };
     let other = Sealed { token: "t", table: [8, 7, 6, 5, 4, 3, 2, 1], seed: 2, word: 4 };
     let coerced: &u32 = &other;
@@ -1429,6 +1779,8 @@ fn main() {
     recount(&mut last, &mut rec, 3);
     restamp(&mut count, &mut rec, 4);
     restamp(&mut last, &mut rec, 5);
+    let _ = tail_after_refused_head(&mut count, &mut rec, 2, b"even");
+    let _ = tail_after_refused_head(&mut last, &mut rec, 3, b"odd");
     let mut cur = Cursor { data: vec![1, 2, 3], pos: 0, reads: 0, sum: 0 };
     read_into(&mut count, &mut cur, 2);
     read_into(&mut last, &mut cur, 9);
@@ -1474,6 +1826,14 @@ fn main() {
     let _ = handoff(&mut count, 7) + handoff(&mut last, 8);
     own_view(&mut count, 3);
     own_view(&mut last, 5);
+    own_iov(&mut count, 3);
+    own_iov(&mut last, 5);
+    own_non_null(&mut count, 3);
+    own_non_null(&mut last, 5);
+    own_waker(&mut count, 3);
+    own_waker(&mut last, 5);
+    own_extent(&mut count, 3);
+    own_extent(&mut last, 5);
     parked_view(&mut count, 3);
     parked_view(&mut last, 5);
     rc_parked(&mut count, 3);
@@ -1502,4 +1862,9 @@ fn main() {
     let _ = plain.close() + secure.close();
     let _ = FOLD_TWO + FOLD_THREE;
     let _ = fold_evens(&mut count, b"even") + fold_evens(&mut last, b"odd");
+    let rows = [Row { a: 1, b: 2, c: 3 }];
+    let _ = hash_row(&mut count, &rows, 0) + hash_row(&mut last, &rows, 1);
+    let tagged = Canvas { tag: 1u8, dims: Dims { w: 1, h: 2 } };
+    let titled = Canvas { tag: "t", dims: Dims { w: 3, h: 4 } };
+    let _ = tagged.area(&mut count) + titled.area(&mut last);
 }

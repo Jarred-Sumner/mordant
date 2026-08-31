@@ -3,11 +3,10 @@ use std::collections::{HashMap, HashSet};
 use clippy_utils::res::MaybeResPath;
 use clippy_utils::source::snippet_opt;
 use clippy_utils::visitors::for_each_expr;
-use rustc_abi::ExternAbi;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::def_id::DefId;
 use rustc_hir::intravisit::FnKind;
-use rustc_hir::{Body, Expr, ExprKind, FnDecl, HirId, Impl, ItemKind, Node, PatKind, UnOp};
+use rustc_hir::{Body, Expr, ExprKind, FnDecl, HirId, PatKind, UnOp};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::print::with_no_trimmed_paths;
 use rustc_middle::ty::{self, Mutability, Ty};
@@ -17,7 +16,7 @@ use rustc_span::{Span, Symbol};
 
 use crate::MordantConfig;
 use crate::baseline::{emit_with_note, join};
-use crate::hir_shapes::{Callee, callee_of};
+use crate::hir_shapes::{Callee, callee_of, owns_signature};
 
 rustc_session::declare_lint! {
     /// Flags two or more plain-data parameters that `parallel-params-min-fns`
@@ -138,43 +137,17 @@ fn plain_data<'tcx>(cx: &LateContext<'tcx>, ty: Ty<'tcx>, seen: &mut HashSet<Ty<
     }
 }
 
-/// A signature the crate is free to change: not exported, not extern, not
-/// dictated by a trait.
-fn owns_signature(cx: &LateContext<'_>, kind: FnKind<'_>, def_id: LocalDefId) -> bool {
-    let header = match kind {
-        FnKind::ItemFn(_, _, header) => header,
-        FnKind::Method(_, sig) => sig.header,
-        FnKind::Closure => return false,
-    };
-    if header.abi != ExternAbi::Rust
-        || cx.effective_visibilities.is_exported(def_id)
-        || cx.tcx.codegen_fn_attrs(def_id).contains_extern_indicator()
-    {
-        return false;
-    }
-    let parent = cx
-        .tcx
-        .parent_hir_node(cx.tcx.local_def_id_to_hir_id(def_id));
-    !matches!(
-        parent,
-        Node::Item(item) if matches!(
-            item.kind,
-            ItemKind::Impl(Impl { of_trait: Some(_), .. }) | ItemKind::Trait { .. }
-        )
-    )
-}
-
 impl<'tcx> LateLintPass<'tcx> for ParallelParams {
     fn check_fn(
         &mut self,
         cx: &LateContext<'tcx>,
-        kind: FnKind<'tcx>,
+        _kind: FnKind<'tcx>,
         decl: &'tcx FnDecl<'tcx>,
         body: &'tcx Body<'tcx>,
         _span: Span,
         def_id: LocalDefId,
     ) {
-        if !owns_signature(cx, kind, def_id) {
+        if !owns_signature(cx, def_id) {
             return;
         }
         let params: Vec<Option<Param>> = body

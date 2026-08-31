@@ -119,8 +119,13 @@ fn resolve<'tcx>(
         .then_some((item, args))
 }
 
+/// `Drop::drop`, or `None` when no `Drop` impl in this crate is generic: no drop counts then.
 fn drop_fn(tcx: TyCtxt<'_>) -> Option<DefId> {
     let drop_trait = tcx.lang_items().drop_trait()?;
+    let generic = |&imp: &LocalDefId| tcx.generics_of(imp).requires_monomorphization(tcx);
+    if !tcx.local_trait_impls(drop_trait).iter().any(generic) {
+        return None;
+    }
     tcx.associated_items(drop_trait)
         .in_definition_order()
         .find(|item| item.is_fn())
@@ -264,8 +269,9 @@ pub(super) fn count_instantiations<'tcx>(tcx: TyCtxt<'tcx>) -> InstantiationCoun
             });
             ControlFlow::<()>::Continue(())
         });
-        // Drops have no HIR node, so read MIR `Drop` terminators.
-        if let Some(mir) = mir_for(tcx, owner)
+        // Drops have no HIR node, so read MIR `Drop` terminators. Slow, so only if one counts.
+        if counts.drop_fn.is_some()
+            && let Some(mir) = mir_for(tcx, owner)
             && let Some(drop_glue) = tcx.lang_items().drop_glue_fn()
         {
             for data in mir.basic_blocks.iter() {
