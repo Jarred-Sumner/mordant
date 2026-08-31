@@ -380,12 +380,8 @@ impl SentinelInteger {
         &mut self,
         cx: &LateContext<'tcx>,
         scrut: &'tcx Expr<'tcx>,
-        pats: impl Iterator<Item = &'tcx Pat<'tcx>>,
+        leaves: Vec<&'tcx Pat<'tcx>>,
     ) {
-        let mut leaves = Vec::new();
-        for pat in pats {
-            value_pats(pat, &mut leaves);
-        }
         if leaves.is_empty() {
             return;
         }
@@ -583,8 +579,18 @@ impl<'tcx> LateLintPass<'tcx> for SentinelInteger {
                 }
                 _ => {}
             },
-            ExprKind::Match(scrut, arms, _) => self.matched(cx, scrut, arms.iter().map(|a| a.pat)),
-            ExprKind::Let(l) => self.matched(cx, l.init, std::iter::once(l.pat)),
+            ExprKind::Match(scrut, arms, _) => {
+                let mut leaves = Vec::new();
+                for arm in arms {
+                    value_pats(arm.pat, &mut leaves);
+                }
+                self.matched(cx, scrut, leaves);
+            }
+            ExprKind::Let(l) => {
+                let mut leaves = Vec::new();
+                value_pats(l.pat, &mut leaves);
+                self.matched(cx, l.init, leaves);
+            }
             ExprKind::Index(_, idx, _) => self.indexed(cx, idx, expr.span),
             ExprKind::MethodCall(seg, recv, args, _) => {
                 let name = seg.ident.as_str();

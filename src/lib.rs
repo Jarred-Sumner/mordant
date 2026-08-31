@@ -11,6 +11,7 @@ extern crate rustc_index;
 extern crate rustc_lint;
 extern crate rustc_metadata;
 extern crate rustc_middle;
+extern crate rustc_mir_dataflow;
 extern crate rustc_session;
 extern crate rustc_span;
 
@@ -35,6 +36,7 @@ mod enum_facts;
 mod error_collapsed_to_bool;
 mod field_valid_only_when;
 mod forbidden_reach;
+mod generic_body_not_generic;
 mod guard_blind_to_action;
 mod hir_clone;
 mod hir_shapes;
@@ -183,6 +185,24 @@ pub struct MordantConfig {
     /// Functions a parameter group must pass between, unchanged, before
     /// `parallel_params` names it.
     pub parallel_params_min_fns: usize = 3,
+    /// The smallest number of statements the shared part of a generic fn's
+    /// body needs before `generic_body_not_generic` names the fn. The shared
+    /// part is one set of the body's blocks with a single entry and a single
+    /// exit that mentions no type or const parameter, and whose values in and
+    /// out have types free of those parameters. The count is of MIR statements
+    /// and terminators; storage markers and plain jumps are not counted, so
+    /// a fn that only forwards its arguments stays under it.
+    ///
+    /// There is no second threshold on how much of the body the shared part
+    /// covers. A part that passes can be moved into a non-generic inner
+    /// fn and replaced by one call, however large the rest of the body is.
+    /// A threshold on its share of the body would only stop the lint from
+    /// reporting fns that are just as easy to fix.
+    pub generic_body_not_generic_min_statements: usize = 24,
+    /// Distinct concrete generic-argument sets this crate must instantiate
+    /// the fn at before its body counts as duplicated. One instantiation
+    /// duplicates nothing.
+    pub generic_body_not_generic_min_instantiations: usize = 2,
 }
 
 #[expect(clippy::no_mangle_with_rust_abi)]
@@ -213,10 +233,10 @@ fn register(config: &'static MordantConfig, s: &mut rustc_lint::LintStore) -> Ve
         defaulted_failure::DefaultedFailure, derived_field::DerivedField,
         discarded_error::DiscardedError, error_collapsed_to_bool::ErrorCollapsedToBool,
         field_valid_only_when::FieldValidOnlyWhen, forbidden_reach::ForbiddenReach,
-        guard_blind_to_action::GuardBlindToAction, index_of_other_kind::IndexOfOtherKind,
-        insert_then_unwrap::InsertThenUnwrap, interchangeable_aliases::InterchangeableAliases,
-        key_not_identity::KeyNotIdentity, lock_order::LockOrder,
-        narrowed_two_ways::NarrowedTwoWays, options_as_enum::OptionsAsEnum,
+        generic_body_not_generic::GenericBodyNotGeneric, guard_blind_to_action::GuardBlindToAction,
+        index_of_other_kind::IndexOfOtherKind, insert_then_unwrap::InsertThenUnwrap,
+        interchangeable_aliases::InterchangeableAliases, key_not_identity::KeyNotIdentity,
+        lock_order::LockOrder, narrowed_two_ways::NarrowedTwoWays, options_as_enum::OptionsAsEnum,
         parallel_bools::ParallelBools, parallel_params::ParallelParams,
         parallel_vecs::ParallelVecs, param_wider_than_callers::ParamWiderThanCallers,
         return_wider_than_body::ReturnWiderThanBody, runtime_typestate::RuntimeTypestate,
@@ -285,6 +305,7 @@ fn register(config: &'static MordantConfig, s: &mut rustc_lint::LintStore) -> Ve
     r.add(config.some_still_unchecked_enabled, || {
         some_still_unchecked::SomeStillUnchecked
     });
+    r.add(true, move || GenericBodyNotGeneric::new(config));
     // Last, so its check_crate_post flushes after every lint has recorded.
     r.add(true, || BaselineWriter);
     r.groups(names::GROUPS);
@@ -439,6 +460,16 @@ fn ui_opt_in_lints_are_off_without_their_key() {
         .run();
 }
 
+/// The `ui_fix` fixtures start with `// run-rustfix`. compiletest applies each
+/// machine-applicable suggestion, compares the result with `.fixed`, and
+/// compiles that file.
+#[test]
+fn ui_fix() {
+    dylint_testing::ui::Test::src_base(env!("CARGO_PKG_NAME"), "ui_fix")
+        .dylint_toml("[mordant]\ngeneric-body-not-generic-min-statements = 16\n")
+        .run();
+}
+
 /// `config_or_default` returns `Default` when the linted workspace has no
 /// `dylint.toml`. A threshold that lost its `= N` would default to 0, which
 /// turns `wildcard_over_own_enum` off (`n > 0` for every enum) and makes
@@ -457,6 +488,8 @@ fn config_default_thresholds_match_docs() {
     assert!(!c.parallel_params_enabled);
     assert!(!c.some_still_unchecked_enabled);
     assert_eq!(c.parallel_params_min_fns, 3);
+    assert_eq!(c.generic_body_not_generic_min_statements, 24);
+    assert_eq!(c.generic_body_not_generic_min_instantiations, 2);
 }
 
 /// An empty table (file present, keys omitted) must not drift from
@@ -567,7 +600,12 @@ fn disabled_expands_a_group_to_its_members() {
     let disabled = resolve_disabled(&names(&["group:duplication", "group:nope"]));
     assert_eq!(
         disabled,
-        ["same_match_twice", "reimplemented_helper", "group:nope"]
+        [
+            "same_match_twice",
+            "reimplemented_helper",
+            "generic_body_not_generic",
+            "group:nope"
+        ]
     );
     let (_, unknown) = registered_store(MordantConfig {
         disabled: names(&["group:duplication", "group:nope"]),

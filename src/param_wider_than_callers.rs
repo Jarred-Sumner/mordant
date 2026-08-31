@@ -50,23 +50,22 @@ pub struct ParamWiderThanCallers {
 rustc_session::impl_lint_pass!(ParamWiderThanCallers => [PARAM_WIDER_THAN_CALLERS]);
 
 impl ParamWiderThanCallers {
-    /// One call of `def`, with the value sent to each body param index.
-    fn record_call<'tcx>(
+    /// One call of `def` sends `value` to its body param `i`.
+    fn record_arg<'tcx>(
         &mut self,
         cx: &LateContext<'tcx>,
         def: DefId,
-        values: impl Iterator<Item = (usize, &'tcx Expr<'tcx>)>,
+        i: usize,
+        value: &Expr<'tcx>,
     ) {
-        for (i, value) in values {
-            let facts = self.calls.entry((def, i)).or_default();
-            facts.sites += 1;
-            facts.first.get_or_insert(value.span);
-            match crate::enum_facts::ctor_literal_variant(cx, value) {
-                Some(v) => {
-                    facts.passed.insert(v);
-                }
-                None => facts.unknown = true,
+        let facts = self.calls.entry((def, i)).or_default();
+        facts.sites += 1;
+        facts.first.get_or_insert(value.span);
+        match crate::enum_facts::ctor_literal_variant(cx, value) {
+            Some(v) => {
+                facts.passed.insert(v);
             }
+            None => facts.unknown = true,
         }
     }
 }
@@ -136,7 +135,9 @@ impl<'tcx> LateLintPass<'tcx> for ParamWiderThanCallers {
                 {
                     return;
                 }
-                self.record_call(cx, def, args.iter().enumerate());
+                for (i, a) in args.iter().enumerate() {
+                    self.record_arg(cx, def, i, a);
+                }
             }
             Some(Callee::Method { def, recv, args }) => {
                 if !def.is_local() {
@@ -145,12 +146,10 @@ impl<'tcx> LateLintPass<'tcx> for ParamWiderThanCallers {
                 // The receiver is the body's param 0 (`self`), so it is a
                 // call-site value for that param like any other: `m.run()`
                 // sends whatever `m` holds, `Mode::Off.run()` sends `Off`.
-                self.record_call(
-                    cx,
-                    def,
-                    std::iter::once((0, recv))
-                        .chain(args.iter().enumerate().map(|(i, a)| (i + 1, a))),
-                );
+                self.record_arg(cx, def, 0, recv);
+                for (i, a) in args.iter().enumerate() {
+                    self.record_arg(cx, def, i + 1, a);
+                }
             }
             // A bare reference to a local fn (fn pointer, higher-order use):
             // its future call sites are invisible. The callee position of a
