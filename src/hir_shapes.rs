@@ -4,15 +4,41 @@
 //! lint applies its own filters on top; what lives here is only the part they
 //! spelled identically.
 
+use rustc_abi::ExternAbi;
 use rustc_hir::def::{DefKind, Res};
-use rustc_hir::def_id::DefId;
+use rustc_hir::def_id::{DefId, LocalDefId};
 use rustc_hir::{
-    Block, Expr, ExprKind, FnRetTy, HirId, Node, QPath, Stmt, StmtKind, Ty as HirTy, TyKind, UnOp,
+    Block, Expr, ExprKind, FnRetTy, HirId, Impl, ItemKind, Node, QPath, Stmt, StmtKind,
+    Ty as HirTy, TyKind, UnOp,
 };
 use rustc_lint::LateContext;
 use rustc_middle::ty::AdtDef;
 use rustc_span::symbol::kw;
 use rustc_span::{Ident, Symbol};
+
+/// A signature the crate is free to change: not exported, not extern, not
+/// dictated by a trait. False for a closure, which has no written signature.
+pub(crate) fn owns_signature(cx: &LateContext<'_>, def_id: LocalDefId) -> bool {
+    let Some(sig) = cx.tcx.hir_node_by_def_id(def_id).fn_sig() else {
+        return false;
+    };
+    if sig.header.abi != ExternAbi::Rust
+        || cx.effective_visibilities.is_exported(def_id)
+        || cx.tcx.codegen_fn_attrs(def_id).contains_extern_indicator()
+    {
+        return false;
+    }
+    let parent = cx
+        .tcx
+        .parent_hir_node(cx.tcx.local_def_id_to_hir_id(def_id));
+    !matches!(
+        parent,
+        Node::Item(item) if matches!(
+            item.kind,
+            ItemKind::Impl(Impl { of_trait: Some(_), .. }) | ItemKind::Trait { .. }
+        )
+    )
+}
 
 /// The bare `self` path.
 pub(crate) fn is_self_path(e: &Expr<'_>) -> bool {

@@ -1,6 +1,10 @@
 //! Counts the statements in each piece of the body and marks those that use a
 //! generic parameter. Also finds locals whose value is a constant in each copy.
 
+use std::ops::ControlFlow;
+
+use rustc_data_structures::fx::FxHashMap;
+use rustc_hir::def_id::DefId;
 use rustc_index::IndexVec;
 use rustc_index::bit_set::DenseBitSet;
 use rustc_middle::mir::visit::{NonMutatingUseContext, PlaceContext, Visitor};
@@ -8,10 +12,12 @@ use rustc_middle::mir::{
     self, BasicBlock, Local, Location, Operand, Place, Rvalue, Statement, StatementKind,
     Terminator, TerminatorKind,
 };
-use rustc_middle::ty::{TyCtxt, TypeVisitableExt};
+use rustc_middle::ty::{
+    self, Ty, TyCtxt, TypeSuperVisitable, TypeVisitable, TypeVisitableExt, TypeVisitor,
+};
 use rustc_span::{ExpnKind, Span, Spanned};
 
-use crate::mir_flow::{FlowGraph, reads_any};
+use crate::mir_flow::{FlowGraph, mir_for, reads_any};
 
 /// For one basic block: items that do something at run time, those among
 /// them that use a parameter ("dependent"), and those written by hand.
@@ -66,39 +72,174 @@ pub(super) fn counted_terminator(terminator: &Terminator<'_>) -> bool {
     )
 }
 
-/// Finds whether an item uses a place whose type contains a parameter. Only
-/// the final projected type is tested: `(*_1).header: [u8; 4]` does not.
+/// Tests whether a type, statement or terminator uses a type or const parameter. A closure's type
+/// lists every parameter, but only its captures and signature (per use) and body (cached) count.
+pub(super) struct ParamUses<'tcx> {
+    tcx: TyCtxt<'tcx>,
+    closure_bodies: FxHashMap<DefId, bool>,
+}
+
+impl<'tcx> TypeVisitor<TyCtxt<'tcx>> for ParamUses<'tcx> {
+    type Result = ControlFlow<()>;
+
+    fn visit_ty(&mut self, ty: Ty<'tcx>) -> ControlFlow<()> {
+        if !ty.has_non_region_param() {
+            return ControlFlow::Continue(());
+        }
+        match *ty.kind() {
+            ty::Param(_) => ControlFlow::Break(()),
+            ty::Closure(def, args) if !self.closure_uses_param(def, args) => {
+                ControlFlow::Continue(())
+            }
+            _ => ty.super_visit_with(self),
+        }
+    }
+
+    fn visit_const(&mut self, ct: ty::Const<'tcx>) -> ControlFlow<()> {
+        if !ct.has_non_region_param() {
+            return ControlFlow::Continue(());
+        }
+        match ct.kind() {
+            ty::ConstKind::Param(_) => ControlFlow::Break(()),
+            _ => ct.super_visit_with(self),
+        }
+    }
+}
+
+impl<'tcx> ParamUses<'tcx> {
+    pub(super) fn new(tcx: TyCtxt<'tcx>) -> Self {
+        Self {
+            tcx,
+            closure_bodies: FxHashMap::default(),
+        }
+    }
+
+    pub(super) fn any(&mut self, value: &impl TypeVisitable<TyCtxt<'tcx>>) -> bool {
+        value.has_non_region_param() && value.visit_with(self).is_break()
+    }
+
+    fn closure_uses_param(&mut self, def: DefId, args: ty::GenericArgsRef<'tcx>) -> bool {
+        let parts = args.as_closure();
+        self.any(&parts.tupled_upvars_ty())
+            || self.any(&parts.sig_as_fn_ptr_ty())
+            || self.closure_body_uses_param(def)
+    }
+
+    fn closure_body_uses_param(&mut self, def: DefId) -> bool {
+        if let Some(&known) = self.closure_bodies.get(&def) {
+            return known;
+        }
+        // The closure's own body names its type: assume "no" while reading it.
+        self.closure_bodies.insert(def, false);
+        let uses = match def.as_local().and_then(|def| mir_for(self.tcx, def)) {
+            Some(body) => self.body_uses_param(&body),
+            None => true,
+        };
+        self.closure_bodies.insert(def, uses);
+        uses
+    }
+
+    fn body_uses_param(&mut self, body: &mir::Body<'tcx>) -> bool {
+        body.local_decls.iter().any(|decl| self.any(&decl.ty))
+            || body.basic_blocks.iter().any(|data| {
+                data.statements
+                    .iter()
+                    .any(|s| self.statement_uses_param(body, s))
+                    || data.terminator.as_ref().is_some_and(|t| self.any(t))
+            })
+    }
+
+    fn statement_uses_param(
+        &mut self,
+        body: &mir::Body<'tcx>,
+        statement: &Statement<'tcx>,
+    ) -> bool {
+        if let Some((place, Rvalue::Aggregate(kind, operands))) = statement.kind.as_assign()
+            && let mir::AggregateKind::Closure(def, args) = **kind
+        {
+            return self.any(place)
+                || self.any(&Ty::new_closure(self.tcx, def, args))
+                || self.any(operands);
+        }
+        self.promoted_load_uses_param(body, statement)
+            .unwrap_or_else(|| self.any(statement))
+    }
+
+    /// For `_n = const promoted[k]` of this body (which names every parameter): whether `k` does.
+    fn promoted_load_uses_param(
+        &mut self,
+        body: &mir::Body<'tcx>,
+        statement: &Statement<'tcx>,
+    ) -> Option<bool> {
+        let (_, Rvalue::Use(Operand::Constant(constant), _)) = statement.kind.as_assign()? else {
+            return None;
+        };
+        let mir::Const::Unevaluated(unevaluated, ty) = constant.const_ else {
+            return None;
+        };
+        let index = unevaluated.promoted?;
+        let def = body.source.def_id();
+        if unevaluated.def != def {
+            return None;
+        }
+        // `promoted_mir` does not steal the body `mir_for` reads.
+        let promoted = self.tcx.promoted_mir(def).get(index)?;
+        Some(self.any(&ty) || self.body_uses_param(promoted))
+    }
+}
+
+pub(super) fn locals_using_param<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    body: &mir::Body<'tcx>,
+) -> DenseBitSet<Local> {
+    let mut uses = ParamUses::new(tcx);
+    let mut found = DenseBitSet::new_empty(body.local_decls.len());
+    for (local, decl) in body.local_decls.iter_enumerated() {
+        if uses.any(&decl.ty) {
+            found.insert(local);
+        }
+    }
+    found
+}
+
+/// Sets `found` if an item uses a place whose final type uses a parameter: not `(*_1).len: u32`.
 pub(super) struct PlaceParams<'a, 'tcx> {
-    pub(super) tcx: TyCtxt<'tcx>,
-    pub(super) body: &'a mir::Body<'tcx>,
-    pub(super) found: bool,
+    body: &'a mir::Body<'tcx>,
+    uses: ParamUses<'tcx>,
+    found: bool,
 }
 
 impl<'tcx> Visitor<'tcx> for PlaceParams<'_, 'tcx> {
     fn visit_place(&mut self, place: &Place<'tcx>, _: PlaceContext, _: Location) {
-        if place
-            .ty(&self.body.local_decls, self.tcx)
-            .ty
-            .has_non_region_param()
-        {
+        let ty = place.ty(&self.body.local_decls, self.uses.tcx).ty;
+        if self.uses.any(&ty) {
             self.found = true;
         }
     }
 }
 
-impl<'tcx> PlaceParams<'_, 'tcx> {
+impl<'a, 'tcx> PlaceParams<'a, 'tcx> {
+    pub(super) fn new(tcx: TyCtxt<'tcx>, body: &'a mir::Body<'tcx>) -> Self {
+        PlaceParams {
+            body,
+            uses: ParamUses::new(tcx),
+            found: false,
+        }
+    }
+
     fn statement_params(&mut self, statement: &Statement<'tcx>) -> (bool, bool) {
         self.found = false;
         self.visit_statement(statement, Location::START);
-        let names_param = promoted_load_names_param(self.tcx, self.body, statement)
-            .unwrap_or_else(|| statement.has_non_region_param());
-        (names_param, self.found)
+        (
+            self.uses.statement_uses_param(self.body, statement),
+            self.found,
+        )
     }
 
     fn terminator_params(&mut self, terminator: &Terminator<'tcx>) -> (bool, bool) {
         self.found = false;
         self.visit_terminator(terminator, Location::START);
-        (terminator.has_non_region_param(), self.found)
+        (self.uses.any(terminator), self.found)
     }
 
     pub(super) fn dependent_statement(&mut self, statement: &Statement<'tcx>) -> bool {
@@ -111,8 +252,7 @@ impl<'tcx> PlaceParams<'_, 'tcx> {
         names_param || typed_place
     }
 
-    /// Names a parameter only as a constant, a callee's generic argument or
-    /// a cast type: a value that is a compile-time constant in each copy.
+    /// Names a parameter only in a constant, callee or cast: a compile-time constant in each copy.
     fn const_only(&mut self, rhs: AssignedValue<'_, 'tcx>) -> bool {
         let (names_param, typed_place) = match rhs {
             AssignedValue::Value(statement, _) => self.statement_params(statement),
@@ -122,52 +262,11 @@ impl<'tcx> PlaceParams<'_, 'tcx> {
     }
 }
 
-/// For `_n = const promoted[k]` of this body, whether the promoted constant
-/// uses a parameter. The statement itself always names every parameter.
-fn promoted_load_names_param<'tcx>(
-    tcx: TyCtxt<'tcx>,
-    body: &mir::Body<'tcx>,
-    statement: &Statement<'tcx>,
-) -> Option<bool> {
-    let (_, mir::Rvalue::Use(mir::Operand::Constant(constant), _)) = statement.kind.as_assign()?
-    else {
-        return None;
-    };
-    let mir::Const::Unevaluated(unevaluated, ty) = constant.const_ else {
-        return None;
-    };
-    let index = unevaluated.promoted?;
-    let def = body.source.def_id();
-    if unevaluated.def != def {
-        return None;
-    }
-    // `promoted_mir` does not steal the body `mir_for` reads.
-    let promoted = tcx.promoted_mir(def).get(index)?;
-    Some(
-        ty.has_non_region_param()
-            || promoted
-                .local_decls
-                .iter()
-                .any(|local| local.ty.has_non_region_param())
-            || promoted.basic_blocks.iter().any(|data| {
-                data.statements.iter().any(|s| s.has_non_region_param())
-                    || data
-                        .terminator
-                        .as_ref()
-                        .is_some_and(|t| t.has_non_region_param())
-            }),
-    )
-}
-
 pub(super) fn classify<'tcx>(
     tcx: TyCtxt<'tcx>,
     body: &mir::Body<'tcx>,
 ) -> (IndexVec<BasicBlock, BlockFacts>, usize) {
-    let mut places = PlaceParams {
-        tcx,
-        body,
-        found: false,
-    };
+    let mut places = PlaceParams::new(tcx, body);
     let facts: IndexVec<BasicBlock, BlockFacts> = body
         .basic_blocks
         .iter()
@@ -216,11 +315,7 @@ pub(super) fn per_copy_consts<'tcx>(
     body: &mir::Body<'tcx>,
     flow: &FlowGraph,
 ) -> (DenseBitSet<Local>, DenseBitSet<BasicBlock>) {
-    let mut places = PlaceParams {
-        tcx,
-        body,
-        found: false,
-    };
+    let mut places = PlaceParams::new(tcx, body);
     let mut consts = DenseBitSet::new_empty(body.local_decls.len());
     for (dest, rhs) in assignments(body, body.basic_blocks.indices()) {
         if let Some(local) = assigned_local(dest)

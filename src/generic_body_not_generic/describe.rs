@@ -3,7 +3,6 @@
 
 use clippy_utils::source::snippet_opt;
 use rustc_data_structures::fx::FxHashMap;
-use rustc_errors::{Applicability, SuggestionStyle};
 use rustc_hir::attrs::InlineAttr;
 use rustc_hir::def_id::LocalDefId;
 use rustc_index::IndexVec;
@@ -20,7 +19,6 @@ use rustc_span::{Span, Symbol};
 
 use super::GENERIC_BODY_NOT_GENERIC;
 use super::classify::{PlaceParams, counted_statement, counted_terminator};
-use super::fix::Edit;
 use super::source_span::SourceSpan;
 use crate::baseline::{emit_hir_then, join};
 use crate::mir_flow::{local_name, reads_any};
@@ -71,15 +69,11 @@ fn entry_blocks(body: &mir::Body<'_>) -> Vec<BasicBlock> {
 }
 
 /// Non-empty when every dependent item is a trait-method call on a generic argument in
-/// `entry_blocks`, a borrow or move into one, or a drop. Empty for trait methods (fixed signature).
+/// `entry_blocks`, a borrow or move into one, or a drop. The caller checks `owns_signature`.
 pub(super) fn only_conversions<'tcx>(
     tcx: TyCtxt<'tcx>,
     body: &mir::Body<'tcx>,
 ) -> Vec<Conversion<'tcx>> {
-    let def = body.source.def_id();
-    if tcx.trait_of_assoc(def).is_some() || tcx.trait_impl_of_assoc(def).is_some() {
-        return Vec::new();
-    }
     let decls = &body.local_decls;
     let bare_param_arg = |local: mir::Local| {
         body.local_kind(local) == mir::LocalKind::Arg
@@ -116,11 +110,7 @@ pub(super) fn only_conversions<'tcx>(
         .indices()
         .filter(|&block| !in_entry_blocks[block] && !body.basic_blocks[block].is_cleanup);
     let order: Vec<BasicBlock> = run.iter().copied().chain(rest).collect();
-    let mut places = PlaceParams {
-        tcx,
-        body,
-        found: false,
-    };
+    let mut places = PlaceParams::new(tcx, body);
     let mut found: Vec<Conversion<'tcx>> = Vec::new();
     for block in order {
         let data = &body.basic_blocks[block];
@@ -434,17 +424,10 @@ fn finding_message(
 ) -> String {
     let name = tcx.def_path_str(def);
     let params = param_names(tcx, def);
-    let them = match &params[..] {
-        [one] => one.clone(),
-        _ => "them".to_owned(),
-    };
     format!(
-        "`{name}` is generic over {} and is compiled {sets} times in this crate, but {} of its \
-         {total} statements (as MIR, before optimization) are the same in every copy: they do not \
-         use {}, control enters and leaves them at one point each, and every value they read or \
-         produce has a type without {them}",
+        "`{name}` is generic over {} and is compiled {sets} times in this crate, but one part of \
+         it, {size} of its {total} statements (as MIR), does not use {}",
         join(&params, "and"),
-        size,
         join(&params, "or"),
     )
 }
@@ -459,9 +442,6 @@ fn part_note(part: &Finding, min_statements: usize) -> String {
         list => format!("produce {}", list.join(", ")),
     };
     let mut rest = format!("{reads} and {produces}");
-    if part.in_loop {
-        rest.push_str(", and run inside a loop, so the replacing call runs once per iteration");
-    }
     match part.other_parts {
         0 => {}
         1 => rest.push_str(&format!(
@@ -475,18 +455,16 @@ fn part_note(part: &Finding, min_statements: usize) -> String {
 }
 
 /// Rendered strings only, so the MIR body's borrow ends early. `total` is
-/// the body's counted items. `edit` is the machine-applicable extraction, when one is safe.
+/// the body's counted items.
 pub(super) struct Finding {
     pub(super) def: LocalDefId,
     pub(super) site: Option<SourceSpan>,
     pub(super) size: usize,
     pub(super) reads: Vec<String>,
     pub(super) produces: Vec<String>,
-    pub(super) in_loop: bool,
     pub(super) other_parts: usize,
     pub(super) total: usize,
     pub(super) signature_help: Option<String>,
-    pub(super) edit: Option<Edit>,
 }
 
 /// Emits with the fn's HirId so an `#[allow]` on the fn is honoured: during
@@ -514,8 +492,8 @@ pub(super) fn report<'tcx>(
     let inline = inline_note(tcx, def);
     let help = format!(
         "move these statements into a separate non-generic function that takes what they read \
-         and returns what they produce, and call it here. `{}` keeps its signature. The added \
-         cost is one call",
+         and returns what they produce, and call it here. `{}` keeps its signature. They are \
+         compiled once only if the compiler keeps the new function out of line",
         tcx.def_path_str(def)
     );
     let signature_help = part
@@ -550,14 +528,6 @@ pub(super) fn report<'tcx>(
             diag.help(help);
             if let Some(signature_help) = signature_help {
                 diag.help(signature_help);
-            }
-            if let Some(edit) = &part.edit {
-                diag.multipart_suggestion_with_style(
-                    edit.help.clone(),
-                    edit.parts.clone(),
-                    Applicability::MachineApplicable,
-                    SuggestionStyle::HideCodeAlways,
-                );
             }
         },
     );

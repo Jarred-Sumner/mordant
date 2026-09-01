@@ -185,6 +185,13 @@ pub struct MordantConfig {
     /// Functions a parameter group must pass between, unchanged, before
     /// `parallel_params` names it.
     pub parallel_params_min_fns: usize = 3,
+    /// Opt-in: run `generic_body_not_generic`. Off by default because its
+    /// counts are exact but the bytes a fix saves are not. They depend on
+    /// whether the compiler inlines the new function back and on whether the
+    /// linker already folds identical copies. For small parts the saving
+    /// measured near zero. It is a survey to run once over a size-sensitive
+    /// crate, largest findings first.
+    pub generic_body_not_generic_enabled: bool,
     /// The smallest number of statements the shared part of a generic fn's
     /// body needs before `generic_body_not_generic` names the fn. The shared
     /// part is one set of the body's blocks with a single entry and a single
@@ -194,10 +201,11 @@ pub struct MordantConfig {
     /// a fn that only forwards its arguments stays under it.
     ///
     /// There is no second threshold on how much of the body the shared part
-    /// covers. A part that passes can be moved into a non-generic inner
-    /// fn and replaced by one call, however large the rest of the body is.
+    /// covers. A part that passes moves into a separate non-generic fn the
+    /// same way however large the rest of the body is, and saves the same
+    /// bytes: its own, and only if the compiler keeps that fn out of line.
     /// A threshold on its share of the body would only stop the lint from
-    /// reporting fns that are just as easy to fix.
+    /// reporting fns whose fix is the same.
     pub generic_body_not_generic_min_statements: usize = 24,
     /// Distinct concrete generic-argument sets this crate must instantiate
     /// the fn at before its body counts as duplicated. One instantiation
@@ -305,7 +313,9 @@ fn register(config: &'static MordantConfig, s: &mut rustc_lint::LintStore) -> Ve
     r.add(config.some_still_unchecked_enabled, || {
         some_still_unchecked::SomeStillUnchecked
     });
-    r.add(true, move || GenericBodyNotGeneric::new(config));
+    r.add(config.generic_body_not_generic_enabled, move || {
+        GenericBodyNotGeneric::new(config)
+    });
     // Last, so its check_crate_post flushes after every lint has recorded.
     r.add(true, || BaselineWriter);
     r.groups(names::GROUPS);
@@ -403,6 +413,7 @@ fn ui() {
             unchecked-input-len-enabled = true
             parallel-params-enabled = true
             some-still-unchecked-enabled = true
+            generic-body-not-generic-enabled = true
 
             [[mordant.forbidden-reach]]
             from = "hot_path"
@@ -460,16 +471,6 @@ fn ui_opt_in_lints_are_off_without_their_key() {
         .run();
 }
 
-/// The `ui_fix` fixtures start with `// run-rustfix`. compiletest applies each
-/// machine-applicable suggestion, compares the result with `.fixed`, and
-/// compiles that file.
-#[test]
-fn ui_fix() {
-    dylint_testing::ui::Test::src_base(env!("CARGO_PKG_NAME"), "ui_fix")
-        .dylint_toml("[mordant]\ngeneric-body-not-generic-min-statements = 16\n")
-        .run();
-}
-
 /// `config_or_default` returns `Default` when the linted workspace has no
 /// `dylint.toml`. A threshold that lost its `= N` would default to 0, which
 /// turns `wildcard_over_own_enum` off (`n > 0` for every enum) and makes
@@ -487,6 +488,7 @@ fn config_default_thresholds_match_docs() {
     assert!(!c.unchecked_input_len_enabled);
     assert!(!c.parallel_params_enabled);
     assert!(!c.some_still_unchecked_enabled);
+    assert!(!c.generic_body_not_generic_enabled);
     assert_eq!(c.parallel_params_min_fns, 3);
     assert_eq!(c.generic_body_not_generic_min_statements, 24);
     assert_eq!(c.generic_body_not_generic_min_instantiations, 2);

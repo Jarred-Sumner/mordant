@@ -215,7 +215,7 @@ pub(super) fn inner_signature<'tcx>(
     // The call moves or borrows each parameter: E0502 if a live local already does.
     let mut live = locals.live_at(entry);
     live.union(&params);
-    if live.iter().any(|local| can_hold_borrow(body, local)) {
+    if live.iter().any(|local| can_hold_borrow(tcx, body, local)) {
         let mut outside = reaching(body, entry);
         outside.intersect(&locals.non_cleanup);
         outside.subtract(blocks);
@@ -273,12 +273,12 @@ pub(super) fn inner_signature<'tcx>(
 }
 
 /// What the blocks of a part do to each local they name.
-pub(super) struct LocalUses {
+struct LocalUses {
     /// Assigned, a call destination, mutably borrowed, or dropped. Not via deref.
     written: DenseBitSet<Local>,
     moved: DenseBitSet<Local>,
     /// Its own storage is borrowed (`&x`, `&mut x.f`), not its target (`&(*x).f`).
-    pub(super) addressed: DenseBitSet<Local>,
+    addressed: DenseBitSet<Local>,
     /// Not passable as `&`: `written`, `moved`, and `through` that `owns_pointee`.
     exclusive: DenseBitSet<Local>,
     through: DenseBitSet<Local>,
@@ -286,7 +286,7 @@ pub(super) struct LocalUses {
 }
 
 impl LocalUses {
-    pub(super) fn of<'tcx>(
+    fn of<'tcx>(
         tcx: TyCtxt<'tcx>,
         body: &mir::Body<'tcx>,
         blocks: &DenseBitSet<BasicBlock>,
@@ -459,73 +459,6 @@ fn live_in(
     start
 }
 
-/// The locals live at the start of `block`: the ones a later statement may still
-/// read along normal edges, as `LocalFacts::live` has them.
-pub(super) fn live_at_start(body: &mir::Body<'_>, block: BasicBlock) -> DenseBitSet<Local> {
-    let mut non_cleanup = DenseBitSet::new_empty(body.basic_blocks.len());
-    for (candidate, data) in body.basic_blocks.iter_enumerated() {
-        if !data.is_cleanup {
-            non_cleanup.insert(candidate);
-        }
-    }
-    let mut returned = DenseBitSet::new_empty(body.local_decls.len());
-    returned.insert(RETURN_PLACE);
-    live_in(body, &non_cleanup, &returned)
-        .remove(&block)
-        .unwrap_or_else(|| DenseBitSet::new_empty(body.local_decls.len()))
-}
-
-/// Whether `blocks` move out of, or drop, a part of `local` but not the whole
-/// (`let name = p.name;`), other than through a pointer it holds.
-pub(super) fn partly_moved(
-    body: &mir::Body<'_>,
-    blocks: &DenseBitSet<BasicBlock>,
-    local: Local,
-) -> bool {
-    struct PartMoves {
-        local: Local,
-        found: bool,
-    }
-    impl<'tcx> Visitor<'tcx> for PartMoves {
-        fn visit_place(&mut self, place: &Place<'tcx>, context: PlaceContext, _: Location) {
-            let takes = matches!(
-                context,
-                PlaceContext::NonMutatingUse(NonMutatingUseContext::Move)
-                    | PlaceContext::MutatingUse(MutatingUseContext::Drop)
-            );
-            self.found |= takes
-                && place.local == self.local
-                && !place.projection.is_empty()
-                && !place.is_indirect_first_projection();
-        }
-    }
-    let mut moves = PartMoves {
-        local,
-        found: false,
-    };
-    for block in blocks.iter() {
-        let data = &body.basic_blocks[block];
-        if data.is_cleanup {
-            continue;
-        }
-        for (index, statement) in data.statements.iter().enumerate() {
-            let at = Location {
-                block,
-                statement_index: index,
-            };
-            moves.visit_statement(statement, at);
-        }
-        if let Some(terminator) = &data.terminator {
-            let at = Location {
-                block,
-                statement_index: data.statements.len(),
-            };
-            moves.visit_terminator(terminator, at);
-        }
-    }
-    moves.found
-}
-
 /// Calls `each(i, state)` with the set of locals live just before statement `i`.
 pub(super) fn block_live(
     body: &mir::Body<'_>,
@@ -593,7 +526,7 @@ fn live_after_statements(
 
 /// Whether `from` or a block after it reads `local`, other than its `Drop`
 /// and the `Discriminant` read that starts an enum's drop.
-pub(super) fn read_after(body: &mir::Body<'_>, from: BasicBlock, local: Local) -> bool {
+fn read_after(body: &mir::Body<'_>, from: BasicBlock, local: Local) -> bool {
     let mut of = DenseBitSet::new_empty(body.local_decls.len());
     of.insert(local);
     let mut seen = DenseBitSet::new_empty(body.basic_blocks.len());

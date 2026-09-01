@@ -71,7 +71,7 @@ The lints come in families, and each family is a lint group whose name is in its
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `same_match_twice`           | the same `match` over one enum written out arm for arm in two places: a mapping the enum should state once as a method, kept in step by hand instead                      |
 | `reimplemented_helper`       | a function whose signature and body repeat another function in the crate under a different name: one helper written twice, so a fix to one copy misses the other          |
-| `generic_body_not_generic`   | statements in a generic fn that are the same in every compiled copy. They do not use its type or const parameters. Control enters and leaves them at one point each. Every value they read or produce has a type without those parameters. Reported when this crate compiles the fn for several argument sets. Moving the statements into a separate non-generic fn compiles them once, costs one call, and keeps the signature. `cargo dylint --fix` does the move when everything they read is `Copy` or a reference |
+| `generic_body_not_generic`   | opt-in via `generic-body-not-generic-enabled`: statements in a generic fn that are the same in every compiled copy. They do not use its type or const parameters. Control enters and leaves them at one point each. Every value they read or produce has a type without those parameters. Reported when this crate compiles the fn for several argument sets. Moving the statements into a separate non-generic fn keeps the signature. It compiles them once only if the compiler keeps that fn out of line |
 
 ### Naming (`mordant_naming`)
 
@@ -161,17 +161,22 @@ generic-body-not-generic-min-instantiations = 2
 # Opt-in: also count `Box<dyn Error>` as a stringly error type.
 stringly-error-include-box-dyn = true
 
-# Opt-in: `bool_cluster`, `stale_safety_comment`, `unchecked_input_len` and
-# `parallel_params` are surveys to run once over a codebase (most of what they
-# name is legitimate once the real cases are fixed; for the third, a length the
-# caller vouches for that the function also uses as some other value's limit;
-# for the last, a buffer and a cursor into it, passed along together by
-# design), so they are off until turned on here.
+# Opt-in: `bool_cluster`, `stale_safety_comment`, `unchecked_input_len`,
+# `parallel_params`, `some_still_unchecked` and `generic_body_not_generic` are
+# surveys to run once over a codebase. They are off until turned on here. Most
+# of what they name is legitimate once the real cases are fixed. For
+# `unchecked_input_len` that is a length the caller vouches for that the
+# function also uses as some other value's limit. For `parallel_params` it is
+# a buffer and a cursor into it, passed along together by design. For
+# `generic_body_not_generic` the counts are exact, but the bytes saved are
+# not. They depend on the compiler keeping the moved code out of line, and
+# measured near zero for small parts.
 bool-cluster-enabled = true
 stale-safety-comment-enabled = true
 unchecked-input-len-enabled = true
 parallel-params-enabled = true
 some-still-unchecked-enabled = true
+generic-body-not-generic-enabled = true
 
 # Opt-in: flag composite keys (tuples, structs one level deep) that carry a
 # denied type unless one of the fixing types sits beside it. With these two
