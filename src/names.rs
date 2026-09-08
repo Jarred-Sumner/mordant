@@ -77,6 +77,7 @@ pub const GROUPS: &[(&str, &[&str])] = &[
         &["key_not_identity", "insert_then_unwrap", "lock_order"],
     ),
     ("comments", &["stale_safety_comment", "stale_panic_message"]),
+    ("unused", &["unused_pub"]),
     ("custom", &["forbidden_reach"]),
 ];
 

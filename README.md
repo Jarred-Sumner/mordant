@@ -98,6 +98,12 @@ The lints come in families, and each family is a lint group whose name is in its
 | `stale_safety_comment`       | opt-in via `stale-safety-comment-enabled`: a `SAFETY:` comment naming an identifier that no longer exists in the file or any linked crate                                 |
 | `stale_panic_message`        | a panic, assert, or `expect` message naming an identifier that no longer exists                                                                                           |
 
+### Unused (`mordant_unused`)
+
+| lint                         | flags                                                                                                                                                                     |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `unused_pub`                 | a `pub` item that no crate in the workspace names, calls or imports: rustc's `dead_code` skips it because `pub` alone makes it reachable; judged across `--workspace`     |
+
 ### Custom (`mordant_custom`)
 
 | lint                         | flags                                                                                                                                                                     |

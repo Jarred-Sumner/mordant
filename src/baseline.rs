@@ -129,14 +129,24 @@ fn cargo_target_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-/// `${CARGO_TARGET_DIR or <root>/target}/mordant/over-baseline.txt`, a
-/// relative `CARGO_TARGET_DIR` taken from the workspace root as cargo does.
-fn status_file(root: &Path, target_dir: Option<&Path>) -> PathBuf {
-    let target = match target_dir {
+/// `${CARGO_TARGET_DIR or <root>/target}`, a relative `CARGO_TARGET_DIR`
+/// taken from the workspace root as cargo does.
+pub(crate) fn target_dir(root: &Path) -> PathBuf {
+    resolve_target_dir(root, cargo_target_dir().as_deref())
+}
+
+fn resolve_target_dir(root: &Path, target_dir: Option<&Path>) -> PathBuf {
+    match target_dir {
         Some(dir) => root.join(dir),
         None => root.join("target"),
-    };
-    target.join("mordant").join("over-baseline.txt")
+    }
+}
+
+/// `<target>/mordant/over-baseline.txt`.
+fn status_file(root: &Path, target_dir: Option<&Path>) -> PathBuf {
+    resolve_target_dir(root, target_dir)
+        .join("mordant")
+        .join("over-baseline.txt")
 }
 
 /// Sums every crate section of the file, since a (lint, file) key can appear
