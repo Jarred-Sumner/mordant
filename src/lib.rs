@@ -71,6 +71,7 @@ mod unchecked_construction;
 mod unchecked_input_len;
 mod unit_mismatch;
 mod unread_error_variant;
+mod unused_pub;
 mod variant_flow;
 mod wildcard_over_own_enum;
 
@@ -317,6 +318,7 @@ fn register(config: &'static MordantConfig, s: &mut rustc_lint::LintStore) -> Ve
         GenericBodyNotGeneric::new(config)
     });
     // Last, so its check_crate_post flushes after every lint has recorded.
+    r.add(true, unused_pub::UnusedPub::default);
     r.add(true, || BaselineWriter);
     r.groups(names::GROUPS);
     unknown_names(&disabled, &r.known)
@@ -400,6 +402,8 @@ fn ui() {
         .dylint_toml(
             r#"
             [mordant]
+            # Its fixtures are full of `pub` items nothing calls; it has its own suite.
+            disabled = ["unused_pub"]
             key-not-identity-types = ["Span"]
             key-not-identity-forms = ["to-bits", "ptr-cast"]
             key-not-identity-methods = ["Value::to_raw"]
@@ -467,6 +471,14 @@ fn ui() {
 #[test]
 fn ui_opt_in_lints_are_off_without_their_key() {
     dylint_testing::ui::Test::src_base(env!("CARGO_PKG_NAME"), "ui_off")
+        .dylint_toml("[mordant]\ndisabled = [\"unused_pub\"]\n")
+        .run();
+}
+
+/// `unused_pub` alone, since every other fixture is made of unused items.
+#[test]
+fn ui_unused_pub() {
+    dylint_testing::ui::Test::src_base(env!("CARGO_PKG_NAME"), "ui_unused_pub")
         .dylint_toml("[mordant]\n")
         .run();
 }
