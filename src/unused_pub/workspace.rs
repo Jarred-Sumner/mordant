@@ -60,8 +60,16 @@ fn crate_name(target: &str) -> String {
     target.replace('-', "_")
 }
 
+/// What cargo is compiling this crate as.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Kind {
+    Lib,
+    Bin,
+}
+
 pub struct Workspace {
     pub root: PathBuf,
+    pub kind: Kind,
     /// `<target>/mordant/unused_pub/`, where every member leaves its files.
     pub dir: PathBuf,
     /// This crate's package.
@@ -77,15 +85,17 @@ pub struct Workspace {
 
 /// `None` when rustc is not running under cargo in a workspace that has
 /// this crate as a member target; the lint then judges the crate alone.
-pub fn locate(local_crate: &str, is_executable: bool) -> Option<Workspace> {
+pub fn locate(local_crate: &str, kind: Kind) -> Option<Workspace> {
     let package = std::env::var("CARGO_PKG_NAME").ok()?;
     let manifest_dir = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR")?);
     let meta = metadata(&manifest_dir)?;
     let me = meta.packages.iter().find(|p| p.name == package)?;
-    let is_lib = !is_executable && me.lib_crate().as_deref() == Some(local_crate);
-    let is_bin = is_executable && me.bin_crates().iter().any(|b| b == local_crate);
-    if !is_lib && !is_bin {
-        // A build script, or a crate compiled outside its package (tests).
+    let member = match kind {
+        Kind::Lib => me.lib_crate().as_deref() == Some(local_crate),
+        Kind::Bin => me.bin_crates().iter().any(|b| b == local_crate),
+    };
+    if !member {
+        // A build script, or a crate compiled outside its package.
         return None;
     }
     let dir = crate::baseline::target_dir(&meta.workspace_root)
@@ -99,6 +109,7 @@ pub fn locate(local_crate: &str, is_executable: bool) -> Option<Workspace> {
     };
     Some(Workspace {
         root: meta.workspace_root,
+        kind,
         dir,
         package,
         members: meta.packages.iter().map(|p| p.name.clone()).collect(),

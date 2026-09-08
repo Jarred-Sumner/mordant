@@ -9,6 +9,8 @@ use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use rustc_hir::def_id::DefId;
+
+use super::workspace::Kind;
 use rustc_lint::LateContext;
 use rustc_middle::ty::TyCtxt;
 use rustc_span::{BytePos, FileName, Span, SyntaxContext};
@@ -46,8 +48,11 @@ pub fn defs_path(dir: &Path, crate_name: &str) -> PathBuf {
     dir.join(format!("{crate_name}.defs"))
 }
 
-pub fn refs_path(dir: &Path, package: &str, crate_name: &str, is_executable: bool) -> PathBuf {
-    let kind = if is_executable { "bin" } else { "lib" };
+pub fn refs_path(dir: &Path, package: &str, crate_name: &str, kind: Kind) -> PathBuf {
+    let kind = match kind {
+        Kind::Lib => "lib",
+        Kind::Bin => "bin",
+    };
     dir.join(format!("{package}.{crate_name}.{kind}.refs"))
 }
 

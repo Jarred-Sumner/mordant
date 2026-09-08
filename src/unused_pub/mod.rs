@@ -79,8 +79,16 @@ impl<'tcx> LateLintPass<'tcx> for UnusedPub {
         let types = cx.tcx.crate_types();
         self.is_executable = types.contains(&CrateType::Executable);
         self.is_proc_macro = types.contains(&CrateType::ProcMacro);
+        if test_build(cx) {
+            return;
+        }
+        let kind = if self.is_executable {
+            workspace::Kind::Bin
+        } else {
+            workspace::Kind::Lib
+        };
         let name = cx.tcx.crate_name(rustc_hir::def_id::LOCAL_CRATE);
-        self.ws = workspace::locate(name.as_str(), self.is_executable);
+        self.ws = workspace::locate(name.as_str(), kind);
         if let Some(ws) = &self.ws {
             self.known = files::all_def_keys(&ws.dir);
             self.known_crates = self
@@ -128,8 +136,10 @@ impl<'tcx> LateLintPass<'tcx> for UnusedPub {
         let Res::Def(_, def_id) = path.res else {
             return;
         };
-        // `impl Foo { .. }` and `impl Trait for Foo` do not use `Foo`.
-        if let Node::Item(item) = cx.tcx.parent_hir_node(hir_id)
+        // `impl Foo { .. }` and `impl Trait for Foo` do not use `Foo`. They do
+        // use an alias written there: the impl is of the type it names.
+        if !matches!(path.res, Res::Def(DefKind::TyAlias, _))
+            && let Node::Item(item) = cx.tcx.parent_hir_node(hir_id)
             && let ItemKind::Impl(imp) = item.kind
             && imp.self_ty.hir_id == hir_id
         {
@@ -174,6 +184,9 @@ impl<'tcx> LateLintPass<'tcx> for UnusedPub {
     }
 
     fn check_crate_post(&mut self, cx: &LateContext<'tcx>) {
+        if test_build(cx) {
+            return;
+        }
         let name = cx.tcx.crate_name(rustc_hir::def_id::LOCAL_CRATE);
         let defs = std::mem::take(&mut self.defs);
         if let Some(ws) = &self.ws {
@@ -184,7 +197,7 @@ impl<'tcx> LateLintPass<'tcx> for UnusedPub {
                     .map(|(.., d)| d.key.clone()),
             );
             files::write_refs(
-                &files::refs_path(&ws.dir, &ws.package, name.as_str(), self.is_executable),
+                &files::refs_path(&ws.dir, &ws.package, name.as_str(), ws.kind),
                 &refs,
             );
             if !self.is_executable && !self.is_proc_macro {
@@ -229,7 +242,8 @@ impl UnusedPub {
         name: Span,
     ) {
         let hir_id = cx.tcx.local_def_id_to_hir_id(def_id);
-        if item_span.from_expansion()
+        if test_build(cx)
+            || item_span.from_expansion()
             || !cx.effective_visibilities.is_reachable(def_id)
             || exempt(cx, def_id)
             || included(cx, hir_id, item_span)
@@ -265,6 +279,9 @@ impl UnusedPub {
     }
 
     fn record_ref(&mut self, cx: &LateContext<'_>, def_id: DefId, from: HirId) {
+        if test_build(cx) {
+            return;
+        }
         // An item naming itself (recursion, its own signature) is no use.
         if from.owner.to_def_id() == def_id {
             return;
@@ -289,6 +306,14 @@ impl UnusedPub {
             self.foreign_refs.insert(key.clone());
         }
     }
+}
+
+/// `cargo check --tests` compiles a member a second time, as a test
+/// executable: the same items again, and cargo does not order that build
+/// before the crate that prints the findings, so what its `#[cfg(test)]`
+/// code uses could not be counted on. Such a build takes no part.
+fn test_build(cx: &LateContext<'_>) -> bool {
+    cx.tcx.sess.is_test_crate()
 }
 
 /// The item a use counts for: a constructor or variant counts as its
@@ -420,9 +445,9 @@ fn report_libraries(cx: &LateContext<'_>, ws: &Workspace, own: &str) {
         .iter()
         .map(|&c| cx.tcx.crate_name(c).to_string())
         .filter(|name| {
-            ws.libraries
-                .get(name)
-                .is_some_and(|package| !files::refs_path(&ws.dir, package, name, false).exists())
+            ws.libraries.get(name).is_some_and(|package| {
+                !files::refs_path(&ws.dir, package, name, workspace::Kind::Lib).exists()
+            })
         })
         .collect();
     if !silent.is_empty() {

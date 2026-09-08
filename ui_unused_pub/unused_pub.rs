@@ -75,6 +75,16 @@ pub type NeverWritten = u32;
 
 pub type Written = u64;
 
+// An impl written against an alias applies to the type behind it, so the
+// alias is in use even if nothing else spells it.
+pub type ImplTarget = Built;
+
+impl ImplTarget {
+    pub fn through_alias_is_fine(&self) -> u32 {
+        self.n
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn reached_by_symbol_is_fine() {}
 
@@ -114,7 +124,7 @@ fn main() {
     let f = taken_as_value_is_fine;
     f();
     let b = Built { n: Built::READ_IS_FINE };
-    let _ = b.called_method_is_fine();
+    let _ = b.called_method_is_fine() + b.through_alias_is_fine();
     generic(&b);
     let _ = match Matched::A {
         Matched::A => 0,
