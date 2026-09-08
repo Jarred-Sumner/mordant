@@ -96,7 +96,7 @@ LL | pub type NeverWritten = u32;
    = help: remove it; if code under a `cfg`, target or feature not compiled here uses it, gate the item the same way
 
 warning: function `unused_pub::open::nested_never_called_is_flagged` is public, but nothing in the workspace uses it
-  --> $DIR/unused_pub.rs:92:12
+  --> $DIR/unused_pub.rs:102:12
    |
 LL |     pub fn nested_never_called_is_flagged() {}
    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
