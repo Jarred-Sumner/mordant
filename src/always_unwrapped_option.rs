@@ -8,7 +8,7 @@ use rustc_span::Symbol;
 use crate::adt_facts::{field_ty, is_option_ty, private_local_struct, struct_field};
 use crate::baseline::emit_with_note;
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags an `Option` field that is unwrapped at all of its reads (two or
     /// more `unwrap`/`expect`s) and `None` is never handled, so `None` can
     /// only crash. That usually means a two-phase object:
@@ -31,7 +31,7 @@ pub struct AlwaysUnwrappedOption {
     fields: HashMap<(DefId, Symbol), FieldFacts>,
 }
 
-rustc_session::impl_lint_pass!(AlwaysUnwrappedOption => [ALWAYS_UNWRAPPED_OPTION]);
+rustc_lint::impl_lint_pass!(AlwaysUnwrappedOption => [ALWAYS_UNWRAPPED_OPTION]);
 
 /// The crate-private local struct owning this field access, when the field is
 /// an `Option`.

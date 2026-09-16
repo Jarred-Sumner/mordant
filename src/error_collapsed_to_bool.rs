@@ -6,12 +6,12 @@ use clippy_utils::{
     get_expr_use_or_unification_node, is_def_id_trait_method, is_in_test, is_refutable,
 };
 use rustc_abi::ExternAbi;
+use rustc_hir::attrs::lang_items::LangItem;
 use rustc_hir::def::DefKind;
 use rustc_hir::def_id::{DefId, LocalDefId};
 use rustc_hir::intravisit::FnKind;
 use rustc_hir::{
-    Block, Body, Expr, ExprKind, FnDecl, HirId, LangItem, LetStmt, MatchSource, Node, Pat, PatKind,
-    StmtKind,
+    Block, Body, Expr, ExprKind, FnDecl, HirId, LetStmt, MatchSource, Node, Pat, PatKind, StmtKind,
 };
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::Ty;
@@ -24,7 +24,7 @@ use crate::baseline::emit_hir_then;
 use crate::enum_facts::{arm_variant, ctor_literal_variant};
 use crate::hir_shapes::{callee_of, peel_blocks_unsafe, peel_not, sole_expr};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a call that ignores the `bool` or `Option` a function of this
     /// crate turned its typed error into, so a failure inside that function
     /// is treated as success. The callee returns `bool` (or
@@ -95,7 +95,7 @@ pub struct ErrorCollapsedToBool {
     drops: Vec<Dropped>,
 }
 
-rustc_session::impl_lint_pass!(ErrorCollapsedToBool => [ERROR_COLLAPSED_TO_BOOL]);
+rustc_lint::impl_lint_pass!(ErrorCollapsedToBool => [ERROR_COLLAPSED_TO_BOOL]);
 
 /// The error type of `e`'s `Result`, when it has a kind that `false` loses:
 /// not a bare primitive, and not zero-sized (`()`, `!`, a unit struct, a

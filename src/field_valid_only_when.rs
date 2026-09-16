@@ -16,7 +16,7 @@ use rustc_middle::ty;
 use rustc_middle::ty::adjustment::{Adjust, AutoBorrow, AutoBorrowMutability};
 use rustc_span::{Span, Symbol, SyntaxContext, sym};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a struct field that only means something when a sibling field
     /// has one particular value: every read in the crate comes after an `if`,
     /// `match`, `let .. else` or diverging guard that tests the sibling
@@ -100,7 +100,7 @@ pub struct FieldValidOnlyWhen {
     writes: HashMap<(DefId, Symbol), Vec<HashSet<Test>>>,
 }
 
-rustc_session::impl_lint_pass!(FieldValidOnlyWhen => [FIELD_VALID_ONLY_WHEN]);
+rustc_lint::impl_lint_pass!(FieldValidOnlyWhen => [FIELD_VALID_ONLY_WHEN]);
 
 /// The struct behind `ty` when every read and construction of it is this
 /// crate's to see and its fields have names a message can use.
@@ -163,10 +163,9 @@ fn expr_value(cx: &LateContext<'_>, e: &Expr<'_>) -> Option<Value> {
 /// bindings without a sub-pattern and wildcards admit more than one.
 fn pat_value(cx: &LateContext<'_>, pat: &Pat<'_>) -> Option<Value> {
     match pat.kind {
-        PatKind::Binding(.., Some(sub))
-        | PatKind::Ref(sub, ..)
-        | PatKind::Deref(sub)
-        | PatKind::Box(sub) => pat_value(cx, sub),
+        PatKind::Binding(.., Some(sub)) | PatKind::Ref(sub, ..) | PatKind::Deref(sub) => {
+            pat_value(cx, sub)
+        }
         PatKind::Expr(PatExpr {
             kind:
                 PatExprKind::Lit {
@@ -534,7 +533,7 @@ impl<'tcx> LateLintPass<'tcx> for FieldValidOnlyWhen {
         let PatKind::Struct(_, fields, _) = pat.kind else {
             return;
         };
-        let Some(typeck) = cx.maybe_typeck_results() else {
+        let Some(typeck) = cx.typeck_results else {
             return;
         };
         let Some(adt) = relevant(cx, typeck.pat_ty(pat)) else {

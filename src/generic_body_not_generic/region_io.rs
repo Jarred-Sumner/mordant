@@ -4,9 +4,8 @@
 use std::collections::VecDeque;
 
 use rustc_data_structures::fx::FxHashMap;
-use rustc_data_structures::work_queue::WorkQueue;
-use rustc_index::IndexVec;
 use rustc_index::bit_set::DenseBitSet;
+use rustc_index::{Idx, IndexVec};
 use rustc_middle::mir::visit::{MutatingUseContext, NonMutatingUseContext, PlaceContext, Visitor};
 use rustc_middle::mir::{
     self, BasicBlock, Local, Location, Operand, Place, RETURN_PLACE, Rvalue, Statement,
@@ -14,10 +13,41 @@ use rustc_middle::mir::{
 };
 use rustc_middle::ty::{self, Ty, TyCtxt};
 use rustc_mir_dataflow::Analysis;
-use rustc_mir_dataflow::impls::MaybeLiveLocals;
+use rustc_mir_dataflow::impls::{LivenessTransferFunction, MaybeLiveLocals};
 
 use super::borrows::{AfterExit, borrow_holders, can_hold_borrow, copies_borrow, owns_pointee};
 use crate::mir_flow::{reaching, reads_any};
+
+/// `rustc_data_structures::work_queue::WorkQueue`, which rustc no longer has: a FIFO of indices in
+/// which an index that is already queued is not queued again.
+struct WorkQueue<T: Idx> {
+    deque: VecDeque<T>,
+    set: DenseBitSet<T>,
+}
+
+impl<T: Idx> WorkQueue<T> {
+    fn with_none(len: usize) -> Self {
+        WorkQueue {
+            deque: VecDeque::with_capacity(len),
+            set: DenseBitSet::new_empty(len),
+        }
+    }
+
+    fn insert(&mut self, element: T) -> bool {
+        if self.set.insert(element) {
+            self.deque.push_back(element);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn pop(&mut self) -> Option<T> {
+        let element = self.deque.pop_front()?;
+        self.set.remove(element);
+        Some(element)
+    }
+}
 
 pub(super) struct LocalFacts {
     /// Liveness: the locals a later statement may still read, at the start
@@ -396,7 +426,7 @@ impl<'tcx> Visitor<'tcx> for LocalUses {
             let local = place.local;
             match context {
                 PlaceContext::MutatingUse(
-                    M::Store | M::SetDiscriminant | M::AsmOutput | M::Call | M::Yield | M::Retag,
+                    M::Store | M::SetDiscriminant | M::AsmOutput | M::Call | M::Yield,
                 ) => {
                     self.written.insert(local);
                 }
@@ -476,7 +506,7 @@ pub(super) fn block_live(
             block,
             statement_index: index,
         };
-        MaybeLiveLocals::transfer_function(state).visit_statement(statement, at);
+        LivenessTransferFunction(state).visit_statement(statement, at);
         each(index, state);
     }
 }
@@ -519,7 +549,7 @@ fn live_after_statements(
                 block,
                 statement_index: data.statements.len(),
             };
-            MaybeLiveLocals::transfer_function(state).visit_terminator(terminator, at);
+            LivenessTransferFunction(state).visit_terminator(terminator, at);
         }
     }
 }
@@ -578,10 +608,13 @@ fn nameable(ty: Ty<'_>) -> bool {
                     | ty::Coroutine(..)
                     | ty::CoroutineWitness(..)
                     | ty::FnDef(..)
-                    | ty::Alias(ty::AliasTy {
-                        kind: ty::Opaque { .. },
-                        ..
-                    })
+                    | ty::Alias(
+                        _,
+                        ty::AliasTy {
+                            kind: ty::Opaque { .. },
+                            ..
+                        },
+                    )
             )
         )
     })

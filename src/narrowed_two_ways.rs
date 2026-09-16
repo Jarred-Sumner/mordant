@@ -12,9 +12,9 @@ use rustc_span::{Span, Symbol, sym};
 
 use crate::adt_facts::has_fixed_repr;
 use crate::baseline::emit_with_note;
-use crate::hir_shapes::{Callee, callee_of};
+use crate::hir_shapes::{Callee, callee_of, enclosing_fn};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags an integer place (a struct field, or a local or parameter
     /// within one function) that is cut down with a bare `as` at one site,
     /// which wraps silently, while another site converts the same place into
@@ -72,7 +72,7 @@ pub struct NarrowedTwoWays {
     range_checked: HashSet<(DefId, Place)>,
 }
 
-rustc_session::impl_lint_pass!(NarrowedTwoWays => [NARROWED_TWO_WAYS]);
+rustc_lint::impl_lint_pass!(NarrowedTwoWays => [NARROWED_TWO_WAYS]);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct IntLayout {
@@ -215,11 +215,6 @@ fn is_constant<'tcx>(cx: &LateContext<'tcx>, e: &'tcx Expr<'tcx>) -> bool {
         }
         _ => ConstEvalCtxt::new(cx).eval(e).is_some(),
     }
-}
-
-fn enclosing_fn(cx: &LateContext<'_>, hir_id: HirId) -> DefId {
-    let owner = cx.tcx.hir_enclosing_body_owner(hir_id).to_def_id();
-    cx.tcx.typeck_root_def_id(owner)
 }
 
 impl NarrowedTwoWays {

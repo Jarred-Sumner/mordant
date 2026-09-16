@@ -13,7 +13,7 @@ use crate::baseline::emit_hir_then;
 use crate::enum_facts::{pat_head_qpath, variant_of_res};
 use crate::hir_shapes::{callee_of, peel_blocks_unsafe};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags `_` (or a catch-all binding) matching over a small crate-local
     /// enum. The catch-all will also match any variant added to the enum
     /// later, so a new variant lands in it silently instead of failing to
@@ -34,7 +34,7 @@ pub struct WildcardOverOwnEnum {
     pub config: &'static MordantConfig,
 }
 
-rustc_session::impl_lint_pass!(WildcardOverOwnEnum => [WILDCARD_OVER_OWN_ENUM]);
+rustc_lint::impl_lint_pass!(WildcardOverOwnEnum => [WILDCARD_OVER_OWN_ENUM]);
 
 fn is_negative_extractor<'tcx>(cx: &LateContext<'tcx>, body: &Expr<'tcx>) -> bool {
     match body.kind {
@@ -45,7 +45,7 @@ fn is_negative_extractor<'tcx>(cx: &LateContext<'tcx>, body: &Expr<'tcx>) -> boo
             LitKind::ByteStr(s, _) => s.as_byte_str().is_empty(),
             _ => false,
         },
-        ExprKind::Path(_) => clippy_utils::is_none_expr(cx, body),
+        ExprKind::Path(_) => crate::hir_shapes::is_none_expr(cx, body),
         // `&[]` and `[]`: the empty-slice answer.
         ExprKind::AddrOf(_, _, inner) => is_negative_extractor(cx, inner),
         ExprKind::Array(elems) => elems.is_empty(),

@@ -10,7 +10,7 @@ use rustc_span::Span;
 use crate::baseline::emit_with_note;
 use crate::hir_shapes::{FieldChain, dotted, field_chain, is_self_path, stmt_expr};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags two locks the crate takes in both orders: one place locks `b`
     /// while `a` is held, another locks `a` while `b` is held. Each order
     /// alone is fine. With both, two threads, one on each path, can
@@ -44,7 +44,7 @@ pub struct LockOrder {
     pairs: HashMap<(Lock, Lock), Span>,
 }
 
-rustc_session::impl_lint_pass!(LockOrder => [LOCK_ORDER]);
+rustc_lint::impl_lint_pass!(LockOrder => [LOCK_ORDER]);
 
 /// `self.a.b.lock()` (or `.read()` / `.write()`) on a `Mutex`/`RwLock`
 /// receiver: the lock's identity is the field path and the type of `self`.
@@ -134,7 +134,7 @@ impl<'tcx> LateLintPass<'tcx> for LockOrder {
                     break;
                 }
                 let mut second: Option<(Lock, Span)> = None;
-                for_each_expr(cx, le, |inner: &Expr<'_>| {
+                for_each_expr(cx.tcx, le, |inner: &Expr<'_>| {
                     // A closure built here runs whenever its holder decides,
                     // possibly after the guard is gone; what it locks is not
                     // locked now.

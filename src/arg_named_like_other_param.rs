@@ -12,7 +12,7 @@ use rustc_span::{Span, Symbol};
 use crate::baseline::{emit, emit_with_note};
 use crate::hir_shapes::{Callee, callee_of};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a call argument passed where the callee expects a parameter of
     /// another name, when the callee also has a parameter of the argument's
     /// own name and the same type: `resize(height, width)` against
@@ -39,7 +39,7 @@ rustc_session::declare_lint! {
     "argument named as a different same-typed parameter of the callee"
 }
 
-rustc_session::declare_lint_pass!(ArgNamedLikeOtherParam => [ARG_NAMED_LIKE_OTHER_PARAM]);
+rustc_lint::declare_lint_pass!(ArgNamedLikeOtherParam => [ARG_NAMED_LIKE_OTHER_PARAM]);
 
 /// The name an argument is spelled with: a local `x`, or the last field of
 /// `x.a.b`, through `&`, `*` and casts. Anything computed has no name to
@@ -112,7 +112,7 @@ fn mirrored_in_condition<'tcx>(
     if root.hir_id == expr.hir_id {
         return false;
     }
-    for_each_expr(cx, root, |e: &'tcx Expr<'tcx>| {
+    for_each_expr(cx.tcx, root, |e: &'tcx Expr<'tcx>| {
         if e.hir_id != expr.hir_id
             && let Some(c) = callee_of(cx, e)
             && c.def() == def

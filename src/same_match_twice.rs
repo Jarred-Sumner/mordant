@@ -9,7 +9,7 @@ use crate::adt_facts::inside_own_trait_impl;
 use crate::baseline::emit_with_note;
 use crate::hir_clone::{expr_hash, exprs_equal};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a `match` over an enum that repeats another one somewhere else
     /// in the crate arm for arm: same scrutinee type, same patterns, same arm
     /// bodies up to the names of the locals they read. The mapping exists
@@ -47,7 +47,7 @@ pub struct SameMatchTwice {
     sites: HashMap<DefId, Vec<Site>>,
 }
 
-rustc_session::impl_lint_pass!(SameMatchTwice => [SAME_MATCH_TWICE]);
+rustc_lint::impl_lint_pass!(SameMatchTwice => [SAME_MATCH_TWICE]);
 
 impl<'tcx> LateLintPass<'tcx> for SameMatchTwice {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {

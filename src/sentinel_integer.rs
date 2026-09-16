@@ -4,6 +4,7 @@ use clippy_utils::higher::Range;
 use clippy_utils::macros::{find_assert_eq_args, root_macro_call_first_node};
 use clippy_utils::res::MaybeResPath;
 use rustc_ast::LitKind;
+use rustc_hir::attrs::lang_items::LangItem;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::def_id::DefId;
 use rustc_hir::{
@@ -15,9 +16,9 @@ use rustc_span::{Span, Symbol, sym};
 
 use crate::adt_facts::{field_ty, is_option_ty, struct_field};
 use crate::baseline::emit_with_note;
-use crate::hir_shapes::{assigned_field, callee_of, peel_blocks_unsafe};
+use crate::hir_shapes::{assigned_field, callee_of, enclosing_fn, peel_blocks_unsafe};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags an integer struct field that can hold a sentinel (some
     /// function compares it `==`/`!=` against `T::MAX`, `-1`, or a constant
     /// named `INVALID`/`NONE`/`SENTINEL`, treating that value as "no value")
@@ -89,7 +90,7 @@ pub struct SentinelInteger {
     poisoned: HashSet<DefId>,
 }
 
-rustc_session::impl_lint_pass!(SentinelInteger => [SENTINEL_INTEGER]);
+rustc_lint::impl_lint_pass!(SentinelInteger => [SENTINEL_INTEGER]);
 
 enum Sentinel {
     Max,
@@ -161,10 +162,9 @@ fn value_pats<'a>(pat: &'a Pat<'a>, out: &mut Vec<&'a Pat<'a>>) {
                 value_pats(alt, out);
             }
         }
-        PatKind::Ref(inner, _, _)
-        | PatKind::Deref(inner)
-        | PatKind::Box(inner)
-        | PatKind::Guard(inner, _) => value_pats(inner, out),
+        PatKind::Ref(inner, _, _) | PatKind::Deref(inner) | PatKind::Guard(inner, _) => {
+            value_pats(inner, out)
+        }
         _ => {}
     }
 }
@@ -191,16 +191,6 @@ fn field_key(cx: &LateContext<'_>, base: &Expr<'_>, name: Symbol) -> Option<Fiel
     field_ty(cx, f).is_integral().then_some((adt.did(), name))
 }
 
-/// The function an expression belongs to, with closures folded into the
-/// function that wrote them: a check before a `.map(|..| v[x.f])` covers it.
-fn owner_fn(cx: &LateContext<'_>, hir_id: HirId) -> DefId {
-    let mut did = cx.tcx.hir_enclosing_body_owner(hir_id).to_def_id();
-    while cx.tcx.is_closure_like(did) || matches!(cx.tcx.def_kind(did), DefKind::InlineConst) {
-        did = cx.tcx.parent(did);
-    }
-    did
-}
-
 /// Memory a `usize` positions into, where the INDEXERS calls panic or are UB
 /// past the end.
 fn is_contiguous<'tcx>(cx: &LateContext<'tcx>, ty: Ty<'tcx>) -> bool {
@@ -208,7 +198,7 @@ fn is_contiguous<'tcx>(cx: &LateContext<'tcx>, ty: Ty<'tcx>) -> bool {
         ty::Slice(_) | ty::Array(..) | ty::Str => true,
         ty::Adt(adt, _) => {
             cx.tcx.is_diagnostic_item(sym::Vec, adt.did())
-                || cx.tcx.is_diagnostic_item(sym::String, adt.did())
+                || cx.tcx.is_lang_item(adt.did(), LangItem::String)
         }
         _ => false,
     }
@@ -347,7 +337,7 @@ impl SentinelInteger {
     fn tested<'tcx>(&mut self, cx: &LateContext<'tcx>, e: &'tcx Expr<'tcx>) -> Vec<Field> {
         let fields = self.reads_of(cx, e);
         if !fields.is_empty() {
-            let body = owner_fn(cx, e.hir_id);
+            let body = enclosing_fn(cx, e.hir_id);
             for f in &fields {
                 self.checked.insert((body, *f));
             }
@@ -416,7 +406,7 @@ impl SentinelInteger {
         if !cx.typeck_results().expr_ty(operand).is_integral() {
             return;
         }
-        let body = owner_fn(cx, operand.hir_id);
+        let body = enclosing_fn(cx, operand.hir_id);
         for field in self.reads_of(cx, operand) {
             self.reads
                 .entry(field)
@@ -462,7 +452,7 @@ impl SentinelInteger {
                 let def = callee.def();
                 if def.is_local() && matches!(cx.tcx.def_kind(def), DefKind::Fn | DefKind::AssocFn)
                 {
-                    let body = owner_fn(cx, expr.hir_id);
+                    let body = enclosing_fn(cx, expr.hir_id);
                     self.callers.entry(def).or_default().insert(body);
                     // Only a predicate (`is_root()`, `has_parent()`) stands
                     // in for a comparison; a call that happens to compare

@@ -14,7 +14,7 @@ use std::collections::VecDeque;
 
 use rustc_data_structures::graph::dominators::{Dominators, dominators};
 use rustc_data_structures::graph::{DirectedGraph, Predecessors, StartNode, Successors};
-use rustc_hir::LangItem;
+use rustc_hir::attrs::lang_items::LangItem;
 use rustc_hir::def_id::LocalDefId;
 use rustc_index::bit_set::DenseBitSet;
 use rustc_index::{IndexSlice, IndexVec};

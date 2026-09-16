@@ -15,5 +15,21 @@ LL | |     }
    = help: replace `ok`, `err` with one enum field, one variant per case
    = note: `#[warn(options_as_enum)]` on by default
 
-warning: 1 warning emitted
+warning: `Spelled` is b$DIRlt in 2 places and none sets more than one of `left`, `right` to `Some`. The fields are alternatives, but the struct allows both at once
+  --> $DIR/options_as_enum.rs:136:1
+   |
+LL | struct Spelled {
+   | ^^^^^^^^^^^^^^
+   |
+note: one of the constructions
+  --> $DIR/options_as_enum.rs:142:5
+   |
+LL | /     Spelled {
+LL | |         left: Slot::Some(1),
+LL | |         right: <Option<u32>>::None,
+LL | |     }
+   | |_____^
+   = help: replace `left`, `right` with one enum field, one variant per case
+
+warning: 2 warnings emitted
 

@@ -18,7 +18,7 @@ use crate::MordantConfig;
 use crate::baseline::{emit_with_note, join};
 use crate::hir_shapes::{Callee, callee_of, owns_signature};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags two or more plain-data parameters that `parallel-params-min-fns`
     /// or more crate-private functions declare alike (same names and types)
     /// and pass between them unchanged: every counted function passes the
@@ -87,7 +87,7 @@ pub struct ParallelParams {
     poisoned: HashSet<DefId>,
 }
 
-rustc_session::impl_lint_pass!(ParallelParams => [PARALLEL_PARAMS]);
+rustc_lint::impl_lint_pass!(ParallelParams => [PARALLEL_PARAMS]);
 
 impl ParallelParams {
     pub fn new(config: &MordantConfig) -> Self {
@@ -185,7 +185,7 @@ impl<'tcx> LateLintPass<'tcx> for ParallelParams {
             return;
         }
         let from = def_id.to_def_id();
-        for_each_expr(cx, body.value, |e: &Expr<'tcx>| {
+        for_each_expr(cx.tcx, body.value, |e: &Expr<'tcx>| {
             if let Some(callee) = callee_of(cx, e)
                 && let to = callee.def()
                 && to != from

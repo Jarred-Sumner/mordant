@@ -11,7 +11,7 @@ use rustc_middle::ty::fast_reject::DeepRejectCtxt;
 use rustc_middle::ty::{self, Ty, TypeVisitableExt};
 use rustc_span::{Symbol, sym};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a `mem::transmute` / `mem::transmute_copy`, or a pointer cast
     /// (`p as *const T`, `p.cast::<T>()`) between different pointee types,
     /// that turns some other type into a struct, enum or union when a
@@ -84,7 +84,7 @@ pub struct CastBypassesFrom {
     validated: HashMap<DefId, bool>,
 }
 
-rustc_session::impl_lint_pass!(CastBypassesFrom => [CAST_BYPASSES_FROM]);
+rustc_lint::impl_lint_pass!(CastBypassesFrom => [CAST_BYPASSES_FROM]);
 
 const TRANSMUTE: &str = "`mem::transmute`";
 const TRANSMUTE_COPY: &str = "`mem::transmute_copy`";

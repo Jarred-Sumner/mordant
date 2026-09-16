@@ -17,7 +17,7 @@ use crate::adt_facts::{field_ty, has_fixed_repr, has_positional_fields, struct_f
 use crate::baseline::{emit_with_note, join};
 use crate::hir_shapes::{Callee, callee_of, peel_blocks_unsafe};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a string or byte-string field or local that only ever holds one
     /// of a fixed set of literals and is read by comparing against literals.
     /// It is an enum written as a string, so a typo on either side still
@@ -61,7 +61,7 @@ pub struct StringlyState {
     locals: HashMap<HirId, (Span, Symbol)>,
 }
 
-rustc_session::impl_lint_pass!(StringlyState => [STRINGLY_STATE]);
+rustc_lint::impl_lint_pass!(StringlyState => [STRINGLY_STATE]);
 
 /// `&str`, `String`, `Box<str>`, `&[u8]`, `Box<[u8]>`, `Vec<u8>`.
 fn is_stringy(cx: &LateContext<'_>, ty: Ty<'_>) -> bool {
@@ -75,7 +75,10 @@ fn is_stringy(cx: &LateContext<'_>, ty: Ty<'_>) -> bool {
     match ty.kind() {
         ty::Ref(_, inner, _) => is_text(*inner),
         ty::Adt(adt, args) => {
-            if cx.tcx.is_lang_item(adt.did(), rustc_hir::LangItem::String) {
+            if cx
+                .tcx
+                .is_lang_item(adt.did(), rustc_hir::attrs::lang_items::LangItem::String)
+            {
                 true
             } else if adt.is_box() {
                 is_text(args.type_at(0))
@@ -194,9 +197,7 @@ fn pat_has_literal(pat: &Pat<'_>) -> bool {
             ..
         }) => lit_text(&lit.node).is_some(),
         PatKind::Or(pats) => pats.iter().any(|p| pat_has_literal(p)),
-        PatKind::Ref(inner, ..) | PatKind::Box(inner) | PatKind::Deref(inner) => {
-            pat_has_literal(inner)
-        }
+        PatKind::Ref(inner, ..) | PatKind::Deref(inner) => pat_has_literal(inner),
         _ => false,
     }
 }
@@ -462,7 +463,7 @@ impl<'tcx> LateLintPass<'tcx> for StringlyState {
     /// A `ref mut` binding, spelt out or implied by matching through a
     /// `&mut`, is a write this lint cannot read.
     fn check_pat(&mut self, cx: &LateContext<'tcx>, pat: &'tcx Pat<'tcx>) {
-        let Some(typeck) = cx.maybe_typeck_results() else {
+        let Some(typeck) = cx.typeck_results else {
             return;
         };
         match pat.kind {

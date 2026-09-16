@@ -10,7 +10,7 @@ use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty;
 use rustc_span::{Span, Symbol};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags bool fields that are always assigned together: every write to
     /// one sits in the same block as a write to the other, across at least two
     /// functions. Together they hold one state, and the struct lets them
@@ -39,7 +39,7 @@ pub struct ParallelBools {
     writes: HashMap<(DefId, Symbol), Vec<Write>>,
 }
 
-rustc_session::impl_lint_pass!(ParallelBools => [PARALLEL_BOOLS]);
+rustc_lint::impl_lint_pass!(ParallelBools => [PARALLEL_BOOLS]);
 
 /// The crate-private local struct behind `ty`, if it has 2+ bool fields.
 fn relevant_struct<'tcx>(cx: &LateContext<'tcx>, ty: ty::Ty<'tcx>) -> Option<ty::AdtDef<'tcx>> {

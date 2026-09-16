@@ -17,7 +17,7 @@
 //! `every_lint_is_in_exactly_one_group_and_the_group_resolves_to_it`, whose
 //! whole point is to keep the *checking* lints' bookkeeping exhaustive.
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Never fires. Registered only so its `desc` — the git rev this build
     /// was compiled from — appears in `cargo dylint list`'s output.
     pub MORDANT_SOURCE_REV,

@@ -14,7 +14,7 @@ use crate::enum_facts::{arm_variant, is_panic_arm};
 use crate::hir_shapes::{Callee, callee_of};
 use crate::variant_flow::returned_variants;
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a match arm that panics on a variant the matched call never
     /// returns: the callee's return type is a crate-local enum, every value
     /// its body returns is a constructor literal, and the panicked-on variant
@@ -39,7 +39,7 @@ pub struct ReturnWiderThanBody {
     suspects: Vec<(DefId, DefId, Span)>,
 }
 
-rustc_session::impl_lint_pass!(ReturnWiderThanBody => [RETURN_WIDER_THAN_BODY]);
+rustc_lint::impl_lint_pass!(ReturnWiderThanBody => [RETURN_WIDER_THAN_BODY]);
 
 impl<'tcx> LateLintPass<'tcx> for ReturnWiderThanBody {
     fn check_fn(

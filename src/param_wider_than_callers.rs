@@ -14,7 +14,7 @@ use rustc_span::def_id::LocalDefId;
 use crate::baseline::emit_with_note;
 use crate::hir_shapes::{Callee, callee_of};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a match arm that panics on an enum variant no existing call
     /// passes: the function takes the full enum, panics on `E::C`, and every
     /// call in the crate provably passes a different variant (constructor
@@ -47,7 +47,7 @@ pub struct ParamWiderThanCallers {
     poisoned: HashSet<DefId>,
 }
 
-rustc_session::impl_lint_pass!(ParamWiderThanCallers => [PARAM_WIDER_THAN_CALLERS]);
+rustc_lint::impl_lint_pass!(ParamWiderThanCallers => [PARAM_WIDER_THAN_CALLERS]);
 
 impl ParamWiderThanCallers {
     /// One call of `def` sends `value` to its body param `i`.
@@ -106,7 +106,7 @@ impl<'tcx> LateLintPass<'tcx> for ParamWiderThanCallers {
         }
         // Panicking arms in matches whose scrutinee is exactly the param.
         let fn_def = def_id.to_def_id();
-        for_each_expr(cx, body.value, |e: &Expr<'tcx>| {
+        for_each_expr(cx.tcx, body.value, |e: &Expr<'tcx>| {
             if let ExprKind::Match(scrut, arms, _) = e.kind
                 && let Some(scrut_local) = scrut.res_local_id()
                 && let Some(idx) = params.iter().position(|p| *p == Some(scrut_local))

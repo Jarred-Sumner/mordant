@@ -2,7 +2,7 @@
 //! a reference is used where the call to the separate function forbids it.
 
 use rustc_data_structures::fx::FxHashSet;
-use rustc_hir::LangItem;
+use rustc_hir::attrs::lang_items::LangItem;
 use rustc_index::bit_set::DenseBitSet;
 use rustc_middle::mir::visit::{MutatingUseContext, NonMutatingUseContext, PlaceContext, Visitor};
 use rustc_middle::mir::{

@@ -13,7 +13,7 @@ use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty;
 use rustc_span::{Span, Symbol, sym};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a value of a validated type built or changed by hand, skipping
     /// the check its validating constructor makes. A validating constructor
     /// is a receiver-less inherent function returning `Result<Self, _>` or
@@ -98,7 +98,7 @@ pub struct UncheckedConstruction {
     sites: Vec<Site>,
 }
 
-rustc_session::impl_lint_pass!(UncheckedConstruction => [UNCHECKED_CONSTRUCTION]);
+rustc_lint::impl_lint_pass!(UncheckedConstruction => [UNCHECKED_CONSTRUCTION]);
 
 impl UncheckedConstruction {
     pub fn new(config: &crate::MordantConfig) -> Self {

@@ -25,7 +25,7 @@ use instances::count_instantiations;
 use region::best_shared_part;
 use source_span::source_span;
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Finds a generic function where a large part of the body is the same
     /// every time it is compiled. rustc compiles the whole body once for
     /// each distinct set of concrete arguments this crate uses the function
@@ -69,7 +69,7 @@ pub(crate) struct GenericBodyNotGeneric {
     min_instantiations: usize,
 }
 
-rustc_session::impl_lint_pass!(GenericBodyNotGeneric => [GENERIC_BODY_NOT_GENERIC]);
+rustc_lint::impl_lint_pass!(GenericBodyNotGeneric => [GENERIC_BODY_NOT_GENERIC]);
 
 impl GenericBodyNotGeneric {
     pub(crate) fn new(config: &MordantConfig) -> Self {

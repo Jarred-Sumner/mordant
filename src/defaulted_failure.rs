@@ -12,7 +12,7 @@ use crate::baseline::{emit, emit_with_note};
 use crate::enum_facts::{arm_variant, ctor_literal_variant};
 use crate::hir_shapes::{callee_of, peel_blocks_unsafe, sole_expr};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a call to a function that can reject its input, where the
     /// rejection is replaced with a fixed value and never looked at:
     /// `f(x).unwrap_or(0)`, `.unwrap_or_default()`,
@@ -54,7 +54,7 @@ pub struct DefaultedFailure {
     facts: HashMap<LocalDefId, Option<Span>>,
 }
 
-rustc_session::impl_lint_pass!(DefaultedFailure => [DEFAULTED_FAILURE]);
+rustc_lint::impl_lint_pass!(DefaultedFailure => [DEFAULTED_FAILURE]);
 
 impl DefaultedFailure {
     pub fn new(config: &crate::MordantConfig) -> Self {

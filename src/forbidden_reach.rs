@@ -13,7 +13,7 @@ use crate::baseline::{emit, emit_with_note};
 use crate::hir_shapes::{callee_of, def_path_names};
 use crate::mir_flow::{assert_panics, mir_for};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a function that can reach something the `forbidden-reach`
     /// config bans for it ("from `scheduler::pick`, no call path may reach
     /// allocation, locking, or panic"), printing the path of calls that gets
@@ -66,7 +66,7 @@ pub struct ForbiddenReach {
     roots: Vec<(usize, DefId, Span)>,
 }
 
-rustc_session::impl_lint_pass!(ForbiddenReach => [FORBIDDEN_REACH]);
+rustc_lint::impl_lint_pass!(ForbiddenReach => [FORBIDDEN_REACH]);
 
 impl ForbiddenReach {
     pub fn new(config: &MordantConfig) -> Self {
@@ -99,7 +99,7 @@ impl<'tcx> LateLintPass<'tcx> for ForbiddenReach {
         }
         let caller = def_id.to_def_id();
         let mut edges = Vec::new();
-        for_each_expr(cx, body.value, |e: &Expr<'tcx>| {
+        for_each_expr(cx.tcx, body.value, |e: &Expr<'tcx>| {
             if let Some(callee) = callee_of(cx, e) {
                 edges.push((callee.def(), e.span));
             } else if matches!(e.kind, ExprKind::Index(..))

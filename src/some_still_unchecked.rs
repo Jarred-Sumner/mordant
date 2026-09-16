@@ -1,10 +1,9 @@
 use clippy_utils::source::snippet;
 use clippy_utils::visitors::is_local_used;
 use clippy_utils::{SpanlessEq, is_lang_item_or_ctor, is_refutable};
+use rustc_hir::attrs::lang_items::LangItem;
 use rustc_hir::def::Res;
-use rustc_hir::{
-    Arm, BinOpKind, Expr, ExprKind, HirId, LangItem, LetExpr, MatchSource, Pat, PatKind,
-};
+use rustc_hir::{Arm, BinOpKind, Expr, ExprKind, HirId, LetExpr, MatchSource, Pat, PatKind};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::Ty;
 use rustc_span::{Span, SyntaxContext, sym};
@@ -13,7 +12,7 @@ use crate::baseline::emit_with_note;
 use crate::enum_facts::pat_head_qpath;
 use crate::hir_shapes::sole_expr;
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a `match` or `if let` over an `Option` or `Result` whose
     /// present case is only taken under a further condition on the value,
     /// with the value that fails it treated exactly like the absent case:
@@ -40,7 +39,7 @@ rustc_session::declare_lint! {
     "a guarded `Some` arm whose failures fall through to the `None` handling"
 }
 
-rustc_session::declare_lint_pass!(SomeStillUnchecked => [SOME_STILL_UNCHECKED]);
+rustc_lint::declare_lint_pass!(SomeStillUnchecked => [SOME_STILL_UNCHECKED]);
 
 /// The two types this lint reads, each with a present and an absent variant.
 #[derive(Clone, Copy)]

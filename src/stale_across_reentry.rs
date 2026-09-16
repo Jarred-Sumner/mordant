@@ -9,7 +9,7 @@ use rustc_hir::{
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty;
 use rustc_span::Span;
-use rustc_span::symbol::{Symbol, sym};
+use rustc_span::symbol::Symbol;
 
 use crate::MordantConfig;
 use crate::adt_facts::impl_self_adt;
@@ -19,7 +19,7 @@ use crate::hir_shapes::{
     strip_generic_segments,
 };
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a value read from a field of `self` (`let n = self.items.len()`,
     /// `let p = self.buf.as_ptr()`, `let had = self.cb.is_some()`), then a
     /// call that can run other code with access to `self`, then a later
@@ -65,7 +65,7 @@ pub struct StaleAcrossReentry {
     pub config: &'static MordantConfig,
 }
 
-rustc_session::impl_lint_pass!(StaleAcrossReentry => [STALE_ACROSS_REENTRY]);
+rustc_lint::impl_lint_pass!(StaleAcrossReentry => [STALE_ACROSS_REENTRY]);
 
 impl StaleAcrossReentry {
     /// Whether the call to `def` with `args` is one the config names, under
@@ -318,7 +318,9 @@ fn changes_behind_shared<'tcx>(cx: &LateContext<'tcx>, ty: ty::Ty<'tcx>, depth: 
             .any(|f| inner(f.ty(cx.tcx, args).skip_normalization())),
         ty::Adt(adt, _) if adt.is_phantom_data() => false,
         ty::Adt(adt, args) => {
-            cx.tcx.is_diagnostic_item(sym::NonNull, adt.did()) || args.types().any(inner)
+            cx.tcx
+                .is_lang_item(adt.did(), rustc_hir::attrs::lang_items::LangItem::NonNull)
+                || args.types().any(inner)
         }
         _ => false,
     }
@@ -458,7 +460,11 @@ impl StaleAcrossReentry {
                 let ty = ty.boxed_ty().unwrap_or(ty).peel_refs();
                 match ty.kind() {
                     ty::FnPtr(..) | ty::Dynamic(..) | ty::Param(_) => Some(Exit::Opaque { args }),
-                    ty::FnDef(def, fn_args) if self.configured(cx, *def, fn_args) => {
+                    ty::FnDef(def, fn_args)
+                        if fn_args
+                            .no_bound_vars()
+                            .is_some_and(|fn_args| self.configured(cx, *def, fn_args)) =>
+                    {
                         Some(Exit::Configured)
                     }
                     _ => None,
@@ -599,7 +605,7 @@ fn refreshes<'tcx>(
     t: &Tracked,
     after_reentry: bool,
 ) -> bool {
-    for_each_expr(cx, e, |inner: &Expr<'tcx>| {
+    for_each_expr(cx.tcx, e, |inner: &Expr<'tcx>| {
         let yes = match &inner.kind {
             ExprKind::MethodCall(seg, recv, [], _)
                 if after_reentry && Fact::of(seg.ident.as_str()).is_some() =>

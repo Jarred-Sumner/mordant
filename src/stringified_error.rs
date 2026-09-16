@@ -5,7 +5,7 @@ use rustc_hir::{Expr, ExprKind};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty;
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a `.map_err(|e| e.to_string())` that turns a typed error into a
     /// `String`. From there on, callers cannot match on which failure it
     /// was. `stringly_error` flags the signature that demands this, and this
@@ -15,7 +15,7 @@ rustc_session::declare_lint! {
     "typed error collapsed into a string"
 }
 
-rustc_session::declare_lint_pass!(StringifiedError => [STRINGIFIED_ERROR]);
+rustc_lint::declare_lint_pass!(StringifiedError => [STRINGIFIED_ERROR]);
 
 impl<'tcx> LateLintPass<'tcx> for StringifiedError {
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
@@ -33,10 +33,10 @@ impl<'tcx> LateLintPass<'tcx> for StringifiedError {
         let ty::Adt(err_adt, _) = err_ty.peel_refs().kind() else {
             return;
         };
-        if cx
-            .tcx
-            .is_lang_item(err_adt.did(), rustc_hir::LangItem::String)
-        {
+        if cx.tcx.is_lang_item(
+            err_adt.did(),
+            rustc_hir::attrs::lang_items::LangItem::String,
+        ) {
             return;
         }
         // The call must actually produce a string error, or nothing was
@@ -46,7 +46,9 @@ impl<'tcx> LateLintPass<'tcx> for StringifiedError {
             return;
         };
         let is_string_out = match out_err.peel_refs().kind() {
-            ty::Adt(a, _) => cx.tcx.is_lang_item(a.did(), rustc_hir::LangItem::String),
+            ty::Adt(a, _) => cx
+                .tcx
+                .is_lang_item(a.did(), rustc_hir::attrs::lang_items::LangItem::String),
             _ => out_err.peel_refs().is_str(),
         };
         if !is_string_out {

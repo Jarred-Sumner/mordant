@@ -4,7 +4,7 @@ use rustc_lint::{LateContext, LateLintPass};
 use crate::baseline::emit;
 use crate::claims::{self, DefNames};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a `// SAFETY:` comment that relies on a backticked identifier
     /// when nothing with that name exists in the file, this crate, or any
     /// crate it links. The justification describes code that is gone.
@@ -24,7 +24,7 @@ pub struct StaleSafetyComment {
     defs: Option<DefNames>,
 }
 
-rustc_session::impl_lint_pass!(StaleSafetyComment => [STALE_SAFETY_COMMENT]);
+rustc_lint::impl_lint_pass!(StaleSafetyComment => [STALE_SAFETY_COMMENT]);
 
 /// The `//` run directly above `span`, when it mentions SAFETY.
 fn safety_comment_above(

@@ -13,7 +13,7 @@ use crate::hir_shapes::{
     return_decl_ty, value_expr, written_alias,
 };
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a value declared under one integer type alias arriving at a
     /// place declared under another: a `DependencyId` local passed as the
     /// `PackageId` parameter, stored in a `PackageId` field, bound by
@@ -36,7 +36,7 @@ rustc_session::declare_lint! {
     "a value declared as one integer alias flowing into a place declared as another"
 }
 
-rustc_session::declare_lint_pass!(InterchangeableAliases => [INTERCHANGEABLE_ALIASES]);
+rustc_lint::declare_lint_pass!(InterchangeableAliases => [INTERCHANGEABLE_ALIASES]);
 
 /// An integer alias as written at a slot, and the alias it bottoms out in.
 #[derive(Clone, Copy)]

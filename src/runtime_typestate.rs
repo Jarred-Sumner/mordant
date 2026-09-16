@@ -11,7 +11,7 @@ use rustc_middle::ty;
 use rustc_span::def_id::LocalDefId;
 use rustc_span::{Span, Symbol};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a bool field that two or more methods begin by testing and
     /// returning early on: `if self.flag { return ... }` as the first
     /// statement. Whether those methods may be called yet is checked at
@@ -37,7 +37,7 @@ pub struct RuntimeTypestate {
     written: HashSet<(DefId, Symbol)>,
 }
 
-rustc_session::impl_lint_pass!(RuntimeTypestate => [RUNTIME_TYPESTATE]);
+rustc_lint::impl_lint_pass!(RuntimeTypestate => [RUNTIME_TYPESTATE]);
 
 /// `self.field` where `self` is the literal receiver.
 fn self_bool_field<'tcx>(

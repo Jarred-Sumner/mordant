@@ -62,7 +62,7 @@ use rustc_span::{Span, Symbol};
 use crate::baseline::emit_with_note;
 use crate::mir_flow::{local_name, mir_for};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags an integer that comes from the caller (a parameter other than
     /// `self`, or a field reached from one) passed to `split_at`,
     /// `get_unchecked`, `with_capacity`, `reserve`, `set_len`,
@@ -94,7 +94,7 @@ rustc_session::declare_lint! {
     "received length turned into memory on a path that never checked it"
 }
 
-rustc_session::declare_lint_pass!(UncheckedInputLen => [UNCHECKED_INPUT_LEN]);
+rustc_lint::declare_lint_pass!(UncheckedInputLen => [UNCHECKED_INPUT_LEN]);
 
 /// Calls that turn an integer argument into memory or a bound on it.
 const SIZE_SINKS: &[&str] = &[

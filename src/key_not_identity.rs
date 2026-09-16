@@ -7,7 +7,7 @@ use rustc_span::sym;
 
 use crate::MordantConfig;
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a map keyed on something that does not identify the thing it
     /// names, so two different things can share a key and overwrite each
     /// other, or one thing can land under several: a type or method the
@@ -49,7 +49,7 @@ pub struct KeyNotIdentity {
     forms: Vec<KeyForm>,
 }
 
-rustc_session::impl_lint_pass!(KeyNotIdentity => [KEY_NOT_IDENTITY]);
+rustc_lint::impl_lint_pass!(KeyNotIdentity => [KEY_NOT_IDENTITY]);
 
 /// Methods whose receiver is a keyed collection and whose first argument (or
 /// type parameter) is in key position.

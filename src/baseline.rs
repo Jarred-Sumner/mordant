@@ -354,7 +354,7 @@ fn section_name(cx: &LateContext<'_>) -> String {
 // baseline file, replacing only this crate's section, or in ratchet mode
 // prints the crate's over-baseline summary. It declares no lint of its own;
 // rustc always runs a lintless pass, so nothing can `allow` it away.
-rustc_session::declare_lint_pass!(BaselineWriter => []);
+rustc_lint::declare_lint_pass!(BaselineWriter => []);
 
 impl<'tcx> LateLintPass<'tcx> for BaselineWriter {
     fn check_crate_post(&mut self, cx: &LateContext<'tcx>) {

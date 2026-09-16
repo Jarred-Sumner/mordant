@@ -4,9 +4,11 @@ use std::ops::ControlFlow;
 
 use crate::adt_facts::{field_ty, has_fixed_repr, is_option_ty, struct_field};
 use crate::baseline::emit_with_note;
-use crate::hir_shapes::{assigned_field, field_chain, peel_blocks_unsafe};
+use crate::hir_shapes::{
+    as_some_expr, assigned_field, field_chain, is_none_expr, peel_blocks_unsafe,
+};
 use clippy_utils::visitors::for_each_expr_without_closures;
-use clippy_utils::{as_some_expr, get_parent_expr, hash_expr, is_default_equivalent, is_none_expr};
+use clippy_utils::{get_parent_expr, hash_expr, is_default_equivalent};
 use rustc_ast::LitKind;
 use rustc_hir::def::Res;
 use rustc_hir::def_id::DefId;
@@ -20,7 +22,7 @@ use rustc_middle::ty::{self, AdtDef};
 use rustc_span::hygiene::{ExpnKind, MacroKind};
 use rustc_span::{Span, Symbol, sym};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a bool field that is only ever written next to a sibling
     /// `Option` field, `true` with `Some` and `false` with `None` (or always
     /// the reverse): every write to either, struct literal or field
@@ -81,7 +83,7 @@ pub struct BoolBesideOption {
     writes: HashMap<(DefId, Symbol), FieldWrites>,
 }
 
-rustc_session::impl_lint_pass!(BoolBesideOption => [BOOL_BESIDE_OPTION]);
+rustc_lint::impl_lint_pass!(BoolBesideOption => [BOOL_BESIDE_OPTION]);
 
 /// A bool or `Option` named field of a local struct that nothing outside the
 /// crate can write: the struct with the field's kind, or None for anything
@@ -347,7 +349,7 @@ impl<'tcx> LateLintPass<'tcx> for BoolBesideOption {
         let PatKind::Struct(_, fields, _) = pat.kind else {
             return;
         };
-        let Some(typeck) = cx.maybe_typeck_results() else {
+        let Some(typeck) = cx.typeck_results else {
             return;
         };
         let ty = typeck.pat_ty(pat);

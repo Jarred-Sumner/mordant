@@ -3,7 +3,7 @@ use crate::baseline::emit;
 use rustc_hir::{ExprKind, Stmt, StmtKind};
 use rustc_lint::{LateContext, LateLintPass};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags `.ok();` as a statement: it converts the `Result` to an
     /// `Option` and drops it, so the error disappears in a line that looks
     /// like handling. A deliberate discard is written `let _ = ...`, which
@@ -13,7 +13,7 @@ rustc_session::declare_lint! {
     "statement-position .ok() drops the error in a line that looks like handling"
 }
 
-rustc_session::declare_lint_pass!(DiscardedError => [DISCARDED_ERROR]);
+rustc_lint::declare_lint_pass!(DiscardedError => [DISCARDED_ERROR]);
 
 impl<'tcx> LateLintPass<'tcx> for DiscardedError {
     fn check_stmt(&mut self, cx: &LateContext<'tcx>, stmt: &'tcx Stmt<'tcx>) {

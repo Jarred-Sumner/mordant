@@ -5,7 +5,7 @@ use rustc_lint::{LateContext, LateLintPass};
 
 use crate::MordantConfig;
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a named-field struct with `bool-cluster-min-bools` or more
     /// `bool` fields, however they are assigned. `n` bools are `2^n`
     /// possible combinations. If only some are valid, an enum names those.
@@ -26,7 +26,7 @@ pub struct BoolCluster {
     pub config: &'static MordantConfig,
 }
 
-rustc_session::impl_lint_pass!(BoolCluster => [BOOL_CLUSTER]);
+rustc_lint::impl_lint_pass!(BoolCluster => [BOOL_CLUSTER]);
 
 impl<'tcx> LateLintPass<'tcx> for BoolCluster {
     fn check_item(&mut self, cx: &LateContext<'tcx>, item: &'tcx Item<'tcx>) {

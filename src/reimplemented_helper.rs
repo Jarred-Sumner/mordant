@@ -13,7 +13,7 @@ use crate::MordantConfig;
 use crate::baseline::emit_with_note;
 use crate::hir_clone::{bodies_equal, body_hash, fn_sigs_equal};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a function with the same signature and the same body as
     /// another function in the crate, apart from local names: the same
     /// parameter and return types and bounds, parameters destructured the
@@ -46,7 +46,7 @@ pub struct ReimplementedHelper {
     fns: HashMap<u64, Vec<FnFact>>,
 }
 
-rustc_session::impl_lint_pass!(ReimplementedHelper => [REIMPLEMENTED_HELPER]);
+rustc_lint::impl_lint_pass!(ReimplementedHelper => [REIMPLEMENTED_HELPER]);
 
 impl ReimplementedHelper {
     pub fn new(config: &MordantConfig) -> Self {

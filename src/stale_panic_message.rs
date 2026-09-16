@@ -5,7 +5,7 @@ use rustc_lint::{LateContext, LateLintPass};
 use crate::baseline::emit;
 use crate::claims::{self, DefNames};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a panic-family message (`panic!`, `unreachable!`, `assert!`,
     /// `expect`) that mentions a backticked identifier when nothing with
     /// that name exists in the file, this crate, or any crate it links.
@@ -20,7 +20,7 @@ pub struct StalePanicMessage {
     defs: Option<DefNames>,
 }
 
-rustc_session::impl_lint_pass!(StalePanicMessage => [STALE_PANIC_MESSAGE]);
+rustc_lint::impl_lint_pass!(StalePanicMessage => [STALE_PANIC_MESSAGE]);
 
 const PANIC_MACROS: &[&str] = &[
     "panic",

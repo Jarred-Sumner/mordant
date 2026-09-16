@@ -128,3 +128,26 @@ fn main() {
     reopen(&mut b);
     let _ = boxed_y();
 }
+
+// Flagged: the same shape, with the constructors spelled through a type alias
+// and through the qualified type.
+type Slot = Option<u32>;
+
+struct Spelled {
+    left: Option<u32>,
+    right: Option<u32>,
+}
+
+fn spelled_left() -> Spelled {
+    Spelled {
+        left: Slot::Some(1),
+        right: <Option<u32>>::None,
+    }
+}
+
+fn spelled_right() -> Spelled {
+    Spelled {
+        left: Slot::None,
+        right: <Option<u32>>::Some(2),
+    }
+}

@@ -4,7 +4,7 @@ use rustc_lint::{LateContext, LateLintPass};
 use crate::baseline::emit;
 use crate::hir_shapes::value_name;
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags addition, subtraction, and comparison between values whose names
     /// say they are in different units: `timeout_ms + deadline_ns` mixes
     /// them, compiles, and is always wrong.
@@ -15,7 +15,7 @@ rustc_session::declare_lint! {
     "arithmetic between values whose names claim different units"
 }
 
-rustc_session::declare_lint_pass!(UnitMismatch => [UNIT_MISMATCH]);
+rustc_lint::declare_lint_pass!(UnitMismatch => [UNIT_MISMATCH]);
 
 /// Unit classes by name suffix. Aliases share a class; a mismatch is two
 /// operands from different classes.

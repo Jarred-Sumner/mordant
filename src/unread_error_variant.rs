@@ -9,7 +9,7 @@ use crate::adt_facts::inside_own_trait_impl;
 use crate::baseline::emit_with_note;
 use crate::enum_facts::{arm_variant, private_enum_of};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a crate-private enum variant that is constructed somewhere but
     /// no pattern anywhere singles it out (its own trait impls aside), so
     /// what it carries is never read and it is only ever caught by a
@@ -41,7 +41,7 @@ pub struct UnreadErrorVariant {
     enums: HashMap<DefId, EnumFacts>,
 }
 
-rustc_session::impl_lint_pass!(UnreadErrorVariant => [UNREAD_ERROR_VARIANT]);
+rustc_lint::impl_lint_pass!(UnreadErrorVariant => [UNREAD_ERROR_VARIANT]);
 
 /// The private-enum variant `expr` constructs, if it is a variant path
 /// (including a bare tuple constructor passed as a function), call or struct

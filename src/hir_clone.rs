@@ -74,9 +74,7 @@ fn eq_param_pat(
         (PatKind::Ref(lp, lpin, lm), PatKind::Ref(rp, rpin, rm)) => {
             lpin == rpin && lm == rm && eq_param_pat(cx, locals, lp, rp)
         }
-        (PatKind::Box(lp), PatKind::Box(rp)) | (PatKind::Deref(lp), PatKind::Deref(rp)) => {
-            eq_param_pat(cx, locals, lp, rp)
-        }
+        (PatKind::Deref(lp), PatKind::Deref(rp)) => eq_param_pat(cx, locals, lp, rp),
         (PatKind::Slice(lb, lm, la), PatKind::Slice(rb, rm, ra)) => {
             eq_param_pats(cx, locals, lb, rb)
                 && eq_opt_pat(cx, locals, *lm, *rm)
@@ -151,9 +149,9 @@ pub(crate) fn fn_sigs_equal(cx: &LateContext<'_>, l: LocalDefId, r: LocalDefId) 
     };
     let bounds = |d: LocalDefId| {
         cx.tcx
-            .predicates_of(d.to_def_id())
+            .clauses_of(d.to_def_id())
             .instantiate_identity(cx.tcx)
-            .predicates
+            .clauses
     };
     sig(l).inputs_and_output == sig(r).inputs_and_output && bounds(l) == bounds(r)
 }

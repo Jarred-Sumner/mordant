@@ -4,7 +4,9 @@
 //! lint applies its own filters on top; what lives here is only the part they
 //! spelled identically.
 
+use clippy_utils::res::{MaybeDef as _, MaybeQPath as _};
 use rustc_abi::ExternAbi;
+use rustc_hir::attrs::lang_items::LangItem;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::def_id::{DefId, LocalDefId};
 use rustc_hir::{
@@ -15,6 +17,39 @@ use rustc_lint::LateContext;
 use rustc_middle::ty::AdtDef;
 use rustc_span::symbol::kw;
 use rustc_span::{Ident, Symbol};
+
+/// The function an expression belongs to, with closures, coroutine bodies and inline consts folded
+/// into the function that wrote them: a check before a `.map(|..| v[x.f])` covers it.
+pub(crate) fn enclosing_fn(cx: &LateContext<'_>, hir_id: HirId) -> DefId {
+    let owner = cx.tcx.hir_enclosing_body_owner(hir_id).to_def_id();
+    cx.tcx.typeck_root_def_id(owner)
+}
+
+/// `clippy_utils::is_none_expr` as it resolved paths before it stopped looking through
+/// type-relative ones: `None` spelled `Alias::None`, `<Option<_>>::None` or `Self::None` is
+/// still `None`.
+pub(crate) fn is_none_expr(cx: &LateContext<'_>, expr: &Expr<'_>) -> bool {
+    expr.res(cx)
+        .ctor_parent(cx)
+        .is_lang_item(cx, LangItem::OptionNone)
+}
+
+/// `clippy_utils::as_some_expr`, resolving paths the same way as [`is_none_expr`].
+pub(crate) fn as_some_expr<'tcx>(
+    cx: &LateContext<'_>,
+    expr: &'tcx Expr<'tcx>,
+) -> Option<&'tcx Expr<'tcx>> {
+    if let ExprKind::Call(callee, [arg]) = expr.kind
+        && callee
+            .res(cx)
+            .ctor_parent(cx)
+            .is_lang_item(cx, LangItem::OptionSome)
+    {
+        Some(arg)
+    } else {
+        None
+    }
+}
 
 /// A signature the crate is free to change: not exported, not extern, not
 /// dictated by a trait. False for a closure, which has no written signature.

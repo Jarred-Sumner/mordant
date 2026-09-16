@@ -10,7 +10,7 @@ use rustc_span::{Span, Symbol};
 use crate::baseline::emit_with_note;
 use crate::hir_shapes::value_name;
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags an index whose name claims one kind (`source_index`, `pkg_id`:
     /// the non-empty prefix before `_index`, `_idx`, `_id` or `_i`) landing
     /// on a place that everywhere else in the function is indexed by names
@@ -45,7 +45,7 @@ rustc_session::declare_lint! {
     "a place indexed by names of two different index kinds within one function"
 }
 
-rustc_session::declare_lint_pass!(IndexOfOtherKind => [INDEX_OF_OTHER_KIND]);
+rustc_lint::declare_lint_pass!(IndexOfOtherKind => [INDEX_OF_OTHER_KIND]);
 
 /// The index kind a name claims: the non-empty prefix before `_index`,
 /// `_idx`, `_id` or `_i`.

@@ -19,7 +19,7 @@ crate-type = ["cdylib"]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(dylint_lib, values("mordant"))'] }
 
 [dependencies]
-clippy_utils = { git = "https://github.com/rust-lang/rust-clippy", rev = "9fca3bc9fc2bc83c60bde26d18ed68f11564b228" }
+clippy_utils = { git = "https://github.com/rust-lang/rust-clippy", rev = "34ace9862f3584a9493049347c3158607f7586e8" }
 dylint_linting = "6.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

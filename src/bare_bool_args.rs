@@ -11,7 +11,7 @@ use rustc_span::Span;
 use crate::baseline::emit_with_note;
 use crate::hir_shapes::{Callee, callee_of};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a crate-private function that takes two or more bools when a
     /// call passes bare `true` / `false` for at least two of them. At
     /// `f(x, true, false)` nothing says which is which, and the swapped call
@@ -40,7 +40,7 @@ pub struct BareBoolArgs {
     calls: HashMap<DefId, Calls>,
 }
 
-rustc_session::impl_lint_pass!(BareBoolArgs => [BARE_BOOL_ARGS]);
+rustc_lint::impl_lint_pass!(BareBoolArgs => [BARE_BOOL_ARGS]);
 
 /// Signature indices of `def`'s `bool` parameters, when it is a crate-private
 /// Rust-ABI fn of this crate whose signature is its own (not a trait's).

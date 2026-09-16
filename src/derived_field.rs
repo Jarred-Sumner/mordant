@@ -12,7 +12,7 @@ use crate::baseline::emit_with_note;
 use crate::enum_facts::ctor_literal_variant;
 use crate::hir_shapes::{assigned_adt_field, peel_blocks_unsafe};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a field that always has the same value for a given value of a
     /// sibling field, in every place the type is built. It is a stored copy
     /// of something the sibling decides, and nothing rejects a mismatched
@@ -42,7 +42,7 @@ pub struct DerivedField {
     assigned: HashMap<DefId, BTreeSet<Symbol>>,
 }
 
-rustc_session::impl_lint_pass!(DerivedField => [DERIVED_FIELD]);
+rustc_lint::impl_lint_pass!(DerivedField => [DERIVED_FIELD]);
 
 /// One site cannot exhibit a correspondence and two is the least that can.
 const FLOOR: usize = 2;

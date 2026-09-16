@@ -7,7 +7,7 @@ use rustc_span::sym;
 use crate::baseline::emit_with_note;
 use crate::hir_shapes::{FieldChain, dotted, field_chain, stmt_expr};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags `map.get(&k).unwrap()` right after a `map.insert(k, ..)` put
     /// the key there, with nothing in between that could touch the map or the
     /// key: no calls, no assignments to either. The lookup and its panic are
@@ -20,7 +20,7 @@ rustc_session::declare_lint! {
     "unwrap of a lookup proven by an insert just above"
 }
 
-rustc_session::declare_lint_pass!(InsertThenUnwrap => [INSERT_THEN_UNWRAP]);
+rustc_lint::declare_lint_pass!(InsertThenUnwrap => [INSERT_THEN_UNWRAP]);
 
 /// A stable textual identity for the small expressions worth tracking:
 /// `self.a.b` chains, plain locals, and literals, seen through `&` and `*`
@@ -106,7 +106,7 @@ fn get_unwrap_of<'tcx>(
 /// callable is assumed able to touch the map, which can only cause silence.
 fn may_disturb<'tcx>(cx: &LateContext<'tcx>, e: &'tcx Expr<'tcx>) -> bool {
     let mut disturbs = false;
-    for_each_expr(cx, e, |inner: &Expr<'tcx>| {
+    for_each_expr(cx.tcx, e, |inner: &Expr<'tcx>| {
         match &inner.kind {
             ExprKind::MethodCall(..) | ExprKind::Call(..) => {
                 // The proven lookup itself is a call; the caller filters it

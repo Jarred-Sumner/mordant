@@ -10,7 +10,7 @@ use rustc_span::{Span, Symbol, sym};
 
 use crate::MordantConfig;
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a public function whose error type is `String` (or `&str`,
     /// `Cow<str>`): callers can only tell failures apart by reading the
     /// message. An error enum gives them variants to match on.
@@ -23,7 +23,7 @@ pub struct StringlyError {
     pub config: &'static MordantConfig,
 }
 
-rustc_session::impl_lint_pass!(StringlyError => [STRINGLY_ERROR]);
+rustc_lint::impl_lint_pass!(StringlyError => [STRINGLY_ERROR]);
 
 impl StringlyError {
     fn check_sig<'tcx>(&self, cx: &LateContext<'tcx>, def_id: LocalDefId, decl: &FnDecl<'tcx>) {
@@ -54,7 +54,10 @@ impl StringlyError {
     fn stringy_desc(&self, cx: &LateContext<'_>, err_ty: Ty<'_>) -> Option<&'static str> {
         match err_ty.kind() {
             ty::Adt(adt, args) => {
-                if cx.tcx.is_lang_item(adt.did(), rustc_hir::LangItem::String) {
+                if cx
+                    .tcx
+                    .is_lang_item(adt.did(), rustc_hir::attrs::lang_items::LangItem::String)
+                {
                     Some("String")
                 } else if cx.tcx.is_diagnostic_item(sym::Cow, adt.did()) && args.type_at(1).is_str()
                 {

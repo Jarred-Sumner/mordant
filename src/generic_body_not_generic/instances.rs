@@ -6,10 +6,10 @@ use std::ops::ControlFlow;
 
 use clippy_utils::visitors::for_each_expr_without_closures;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet, FxIndexMap, FxIndexSet};
-use rustc_data_structures::stack::ensure_sufficient_stack;
+use rustc_hir::attrs::lang_items::LangItem;
 use rustc_hir::def::DefKind;
 use rustc_hir::def_id::{DefId, LocalDefId};
-use rustc_hir::{ConstContext, Expr, ExprKind, LangItem, Node};
+use rustc_hir::{ConstContext, Expr, ExprKind, Node};
 use rustc_middle::mir::TerminatorKind;
 use rustc_middle::ty::adjustment::{Adjust, DerefAdjustKind};
 use rustc_middle::ty::{
@@ -179,7 +179,7 @@ fn types_dropped_by_local_impl<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Vec<Ty<
                         tcx.try_instantiate_and_normalize_erasing_regions(
                             args,
                             env,
-                            ty::EarlyBinder::bind(saved.ty),
+                            ty::EarlyBinder::bind(tcx, saved.ty),
                         )
                         .ok()
                     }));
@@ -204,7 +204,7 @@ fn fn_uses<'tcx>(
     };
     let named = match e.kind {
         ExprKind::Path(..) => match *ty.kind() {
-            ty::FnDef(def, args) => Some((def, args)),
+            ty::FnDef(def, args) => args.no_bound_vars().map(|args| (def, args)),
             _ => None,
         },
         _ => typeck
@@ -311,7 +311,7 @@ fn propagate<'tcx>(tcx: TyCtxt<'tcx>, counts: &mut InstantiationCounts<'tcx>) {
             let Ok(args) = tcx.try_instantiate_and_normalize_erasing_regions(
                 caller_args,
                 env,
-                ty::EarlyBinder::bind(edge.args),
+                ty::EarlyBinder::bind(tcx, edge.args),
             ) else {
                 continue;
             };
@@ -345,7 +345,7 @@ impl<'tcx> TypeVisitor<TyCtxt<'tcx>> for TypeDepth<'tcx> {
             Some(&depth) => depth,
             None => {
                 let outer = std::mem::take(&mut self.depth);
-                ensure_sufficient_stack(|| ty.super_visit_with(self));
+                ty.super_visit_with(self);
                 let depth = std::mem::replace(&mut self.depth, outer) + 1;
                 self.measured.insert(ty, depth);
                 depth

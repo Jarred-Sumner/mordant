@@ -2,12 +2,13 @@ use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
 
 use clippy_utils::visitors::for_each_expr_without_closures;
+use rustc_hir::attrs::lang_items::LangItem;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::def_id::DefId;
 use rustc_hir::intravisit::FnKind;
 use rustc_hir::{
-    Body, Expr, ExprKind, FnDecl, HirId, LangItem, LetStmt, LocalSource, MatchSource, Node, Pat,
-    PatKind, QPath, StmtKind,
+    Body, Expr, ExprKind, FnDecl, HirId, LetStmt, LocalSource, MatchSource, Node, Pat, PatKind,
+    QPath, StmtKind,
 };
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::{self, AssocContainer, Ty, TyCtxt};
@@ -17,7 +18,7 @@ use rustc_span::{Ident, Span, Symbol, sym};
 use crate::baseline::{emit_with_note, join};
 use crate::hir_shapes::{callee_of, peel_blocks_unsafe};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags a crate-private function returning a tuple (bare, or inside an
     /// `Option`/`Result`) with two members of one type, when every call in
     /// the crate unpacks it on the spot (`let (a, b) = f()`, an
@@ -76,7 +77,7 @@ pub struct TupleWantsStruct {
     poisoned: HashSet<DefId>,
 }
 
-rustc_session::impl_lint_pass!(TupleWantsStruct => [TUPLE_WANTS_STRUCT]);
+rustc_lint::impl_lint_pass!(TupleWantsStruct => [TUPLE_WANTS_STRUCT]);
 
 /// What one call site does with the returned tuple.
 enum Use {

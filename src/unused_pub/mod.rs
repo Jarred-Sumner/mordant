@@ -14,13 +14,13 @@ use rustc_hir::{
 use rustc_lint::{LateContext, LateLintPass, LintContext};
 use rustc_middle::middle::codegen_fn_attrs::CodegenFnAttrFlags;
 use rustc_middle::ty::print::with_no_trimmed_paths;
-use rustc_session::config::CrateType;
 use rustc_span::Span;
+use rustc_structures::CrateType;
 
 use files::Def;
 use workspace::Workspace;
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Finds a `pub` item that nothing in the workspace uses: no crate
     /// compiled in this run names it, calls it, or imports it, its own
     /// crate included. rustc's `dead_code` never reports such an item,
@@ -72,7 +72,7 @@ pub struct UnusedPub {
     keys: HashMap<DefId, Option<String>>,
 }
 
-rustc_session::impl_lint_pass!(UnusedPub => [UNUSED_PUB]);
+rustc_lint::impl_lint_pass!(UnusedPub => [UNUSED_PUB]);
 
 impl<'tcx> LateLintPass<'tcx> for UnusedPub {
     fn check_crate(&mut self, cx: &LateContext<'tcx>) {

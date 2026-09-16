@@ -15,7 +15,7 @@ use crate::adt_facts::field_ty;
 use crate::baseline::{emit_with_note, join};
 use crate::hir_shapes::{assigned_field, field_method_call, indexed_field};
 
-rustc_session::declare_lint! {
+rustc_lint::declare_lint! {
     /// Flags two or more growable-sequence fields of one struct (`Vec`,
     /// `VecDeque`, or any type with `push`/`append`, `len` and indexing)
     /// whose lengths the crate only ever changes side by side -- every
@@ -137,7 +137,7 @@ pub struct ParallelVecs {
     reads: Vec<Read>,
 }
 
-rustc_session::impl_lint_pass!(ParallelVecs => [PARALLEL_VECS]);
+rustc_lint::impl_lint_pass!(ParallelVecs => [PARALLEL_VECS]);
 
 fn has_inherent_method(cx: &LateContext<'_>, did: DefId, names: &[&str]) -> bool {
     cx.tcx.inherent_impls(did).iter().any(|imp| {
@@ -490,7 +490,7 @@ impl<'tcx> LateLintPass<'tcx> for ParallelVecs {
         let PatKind::Struct(_, bindings, _) = pat.kind else {
             return;
         };
-        let Some(typeck) = cx.maybe_typeck_results() else {
+        let Some(typeck) = cx.typeck_results else {
             return;
         };
         let Some((adt, fields)) = self.candidates(cx, typeck.pat_ty(pat)) else {
