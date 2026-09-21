@@ -5,7 +5,7 @@ use crate::baseline::{emit, emit_with_note};
 use crate::ctor_flow;
 use crate::hir_shapes::callee_of;
 use rustc_hir::def_id::DefId;
-use rustc_hir::{Expr, ExprKind};
+use rustc_hir::{Expr, ExprKind, Mutability};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::fast_reject::DeepRejectCtxt;
 use rustc_middle::ty::{self, Ty, TypeVisitableExt};
@@ -42,7 +42,10 @@ rustc_lint::declare_lint! {
     /// integers, type parameters); a pointer cast into a type with interior
     /// mutability, which views the pointee in place (`usize` as
     /// `AtomicUsize`) where a by-value `From` would make a new cell, unless
-    /// a constructor returns that view itself; a type nothing converts
+    /// a constructor returns that view itself from a reference the cast's
+    /// source could lend (`Atomic::from_mut` takes `&mut usize`, so it
+    /// stands in for a cast from `*mut usize` and not from `&usize`); a
+    /// type nothing converts
     /// into, which has no check to bypass; `unsafe fn` and unstable
     /// constructors, which promise no check or cannot be called; conversions
     /// whose input is the target type itself or generic; and a
@@ -74,7 +77,9 @@ struct Conversion<'tcx> {
 #[derive(Clone, Copy, PartialEq)]
 enum Shape {
     Value,
-    Pointer,
+    /// Through references or raw pointers, the innermost of the source's
+    /// with this mutability.
+    Pointer(Mutability),
 }
 
 pub struct CastBypassesFrom {
@@ -110,17 +115,18 @@ fn transmuter(cx: &LateContext<'_>, def: DefId) -> Option<&'static str> {
 /// pointees, `usize -> *const B` compares nothing.
 fn peel_pointer_pair<'tcx>(mut a: Ty<'tcx>, mut b: Ty<'tcx>) -> (Ty<'tcx>, Ty<'tcx>, Shape) {
     let mut shape = Shape::Value;
-    while let (Some(pa), Some(pb)) = (pointee(a), pointee(b)) {
+    while let (Some((pa, mutability)), Some((pb, _))) = (pointer(a), pointer(b)) {
         a = pa;
         b = pb;
-        shape = Shape::Pointer;
+        shape = Shape::Pointer(mutability);
     }
     (a, b, shape)
 }
 
-fn pointee(t: Ty<'_>) -> Option<Ty<'_>> {
+/// The pointee of a reference or raw pointer, and whether it is unique.
+fn pointer(t: Ty<'_>) -> Option<(Ty<'_>, Mutability)> {
     match *t.kind() {
-        ty::Ref(_, inner, _) | ty::RawPtr(inner, _) => Some(inner),
+        ty::Ref(_, inner, m) | ty::RawPtr(inner, m) => Some((inner, m)),
         _ => None,
     }
 }
@@ -133,12 +139,16 @@ impl<'tcx> Conversion<'tcx> {
     /// same pointee does unchecked and nothing a value transmute does; and a
     /// by-value conversion into a type with interior mutability makes a new
     /// cell where a pointer cast views the old one, so it stands in for
-    /// value sites and for pointer casts into `Freeze` types only.
+    /// value sites and for pointer casts into `Freeze` types only. A view
+    /// taking `&mut A` needs unique access, which a cast from a shared
+    /// pointer does not have to give it.
     fn checks(&self, from: Ty<'tcx>, shape: Shape, target_is_freeze: bool) -> bool {
         match (shape, self.views) {
-            (Shape::Pointer, true) => pointee(self.from) == Some(from),
+            (Shape::Pointer(source), true) => pointer(self.from).is_some_and(|(input, needs)| {
+                input == from && (needs == Mutability::Not || source == Mutability::Mut)
+            }),
             (Shape::Value, true) => false,
-            (Shape::Pointer, false) if !target_is_freeze => false,
+            (Shape::Pointer(_), false) if !target_is_freeze => false,
             (_, false) => self.from == from || self.from.peel_refs() == from,
         }
     }

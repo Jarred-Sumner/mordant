@@ -318,6 +318,13 @@ fn as_atomic(n: &usize) -> usize {
     unsafe { (*(n as *const usize).cast::<AtomicUsize>()).load(Ordering::Relaxed) }
 }
 
+// Flagged: from a unique pointer the in-place view has a constructor,
+// `Atomic::from_mut`, which the cast skips.
+fn as_atomic_mut(n: &mut usize) -> usize {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    unsafe { (*(n as *mut usize).cast::<AtomicUsize>()).load(Ordering::Relaxed) }
+}
+
 fn main() {
     let _ = level_from_wire(1);
     let _ = code_from_wire(1);
@@ -343,6 +350,7 @@ fn main() {
     let _ = from_addr(8);
     let _ = constness(core::ptr::null_mut());
     let _ = as_atomic(&0);
+    let _ = as_atomic_mut(&mut 0);
     let _ = level::trusted(0);
     let _ = Code::from_raw(0);
     let _ = Fd::new(0).0;

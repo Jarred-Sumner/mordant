@@ -181,6 +181,14 @@ LL |         pub fn new(b: &[u8]) -> Option<Str<'_>> {
    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    = help: call `Str::new` instead. If this path must skip the check, add an unchecked constructor next to it so both live beside the layout
 
+warning: a pointer cast turns `usize` into `std::sync::atomic::Atomic<usize>` here and accepts any bit pattern. `Atomic::from_mut` is where the crate says how `&mut usize` becomes `std::sync::atomic::Atomic<usize>`
+  --> $DIR/cast_bypasses_from.rs:325:16
+   |
+LL |     unsafe { (*(n as *mut usize).cast::<AtomicUsize>()).load(Ordering::Relaxed) }
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: call `Atomic::from_mut` instead. If this path must skip it, add an unchecked constructor next to it so both live beside the layout
+
 warning: `gate::Gate` is produced with `mem::transmute` here, skipping the check on `v` that `Gate::new` makes
   --> $DIR/cast_bypasses_from.rs:274:14
    |
@@ -195,5 +203,5 @@ LL |             if v < 2 { Some(Gate { v }) } else { None }
    = help: b$DIRld it with `Gate::new(..)`. If this path must skip the check, add an unchecked constructor next to `Gate::new` and call that
    = note: `#[warn(unchecked_construction)]` on by default
 
-warning: 15 warnings emitted
+warning: 16 warnings emitted
 
