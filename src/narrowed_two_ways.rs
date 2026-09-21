@@ -158,8 +158,6 @@ fn checked_conversion<'tcx>(
     cx: &LateContext<'tcx>,
     e: &'tcx Expr<'tcx>,
 ) -> Option<(&'tcx Expr<'tcx>, Ty<'tcx>)> {
-    // By name, not `clippy_utils::sym::try_from_fn`: that is one of clippy's
-    // extra symbols, interned at an index the dylint driver need not share.
     let operand = match callee_of(cx, e)? {
         Callee::Path { def, args: [arg] }
             if cx

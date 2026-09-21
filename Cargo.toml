@@ -8,28 +8,21 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/scarletindustries/mordant"
 publish = false
 
-[lib]
-crate-type = ["cdylib"]
-
 [lints.rust]
-# dylint's driver sets `--cfg dylint_lib="<library>"` while it lints; a plain
-# `cargo build` / `cargo clippy` does not. That is what lets this pack `allow`
-# one of its own lints in its own source without `unknown_lints` firing when
-# the pack is compiled off-driver.
+# `mordant-driver` sets `--cfg dylint_lib="mordant"` while it lints, as dylint's
+# driver did; a plain `cargo build` / `cargo clippy` does not. That is what lets
+# this pack `allow` one of its own lints in its own source without
+# `unknown_lints` firing when the pack is compiled off-driver.
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(dylint_lib, values("mordant"))'] }
 
 [dependencies]
 clippy_utils = { git = "https://github.com/rust-lang/rust-clippy", rev = "34ace9862f3584a9493049347c3158607f7586e8" }
-dylint_linting = "6.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
 
 [dev-dependencies]
-dylint_testing = "6.0"
+compiletest_rs = "0.11"
 
 [package.metadata.rust-analyzer]
 rustc_private = true
-
-[workspace.metadata.dylint]
-libraries = [{ path = "." }]

@@ -4,7 +4,7 @@
 
 Lints that find code where the type system is not enforcing the invariants the code depends on.
 
-[Documentation](https://scarlet.industries/docs/mordant) • [Dylint](https://github.com/trailofbits/dylint)
+[Documentation](https://scarlet.industries/docs/mordant)
 
 ---
 
@@ -114,34 +114,34 @@ Each diagnostic says what is wrong at the place it points at, shows the other pl
 
 ## Run
 
-Mordant runs against stable Rust projects. The lints build against a pinned nightly, which dylint fetches on its own; your toolchain does not change.
+Mordant runs against stable Rust projects. The lints are built with a pinned nightly, the one in [`rust-toolchain`](rust-toolchain), and that nightly checks your code while they run; your own toolchain does not change.
+
+Install the nightly and mordant's two binaries, `cargo-mordant` and `mordant-driver`:
 
 ```sh
-cargo install cargo-dylint dylint-link
+rustup toolchain install nightly-2026-09-01 --component rustc-dev --component llvm-tools-preview
+cargo +nightly-2026-09-01 install --locked --git https://github.com/scarletindustries/mordant
 ```
 
-Add the library to your workspace `Cargo.toml`:
-
-```toml
-[workspace.metadata.dylint]
-libraries = [{ git = "https://github.com/scarletindustries/mordant" }]
-```
+Add `--rev <commit>` to pin the lints, so they change only when you move the pin. `cargo mordant --version` prints the commit a build came from, and `cargo mordant --list` every lint in it.
 
 Run the lints:
 
 ```sh
-cargo dylint --all
+cargo mordant --workspace
 ```
+
+Every option other than `--fix` goes to `cargo check` as written. The run builds into `target/mordant/check`, apart from your usual builds. `MORDANT_RUSTFLAGS` passes rustc flags to the linted crates only, so `MORDANT_RUSTFLAGS="-D warnings"` fails a CI run on any finding without rebuilding the dependencies.
 
 Findings are warnings, so a workspace that denies warnings (`[workspace.lints.rust] warnings = "deny"`, `RUSTFLAGS=-Dwarnings`) turns the first one in a crate into an error and never sees the rest. Run under a baseline instead (see [Ratchet](#ratchet)): with one configured, mordant reports new findings as warnings that no lint level can raise, and such a workspace needs no extra flags.
 
 Some lints carry machine-applicable fixes. `wildcard_over_own_enum` rewrites each catch-all arm into the variants it was hiding, in the same path style the file already uses:
 
 ```sh
-cargo dylint --all --fix
+cargo mordant --workspace --fix
 ```
 
-Configure per project in `dylint.toml` at the workspace root:
+Configure per project in `dylint.toml` at the workspace root. The file keeps the name it had when mordant was a dylint library, and mordant reads only its `[mordant]` table:
 
 ```toml
 [mordant]
@@ -242,7 +242,7 @@ baseline = "mordant-baseline.toml"
 Generate or regenerate it:
 
 ```sh
-MORDANT_BASELINE_WRITE=1 cargo dylint --all
+MORDANT_BASELINE_WRITE=1 cargo mordant --workspace
 ```
 
 The file records a count per lint and file. A run suppresses that many findings and reports anything beyond them, so new problems surface while the existing ones stay recorded. When you fix a finding, regenerate and commit the file; the count falls and stays down. Findings under an `#[allow]` or `#[expect]` are neither recorded nor counted.
@@ -251,7 +251,7 @@ With a baseline configured, the baseline decides what fails the run, not the lin
 
 ```sh
 rm -f target/mordant/over-baseline.txt
-cargo dylint --all --workspace -- --keep-going
+cargo mordant --workspace --keep-going
 test ! -s target/mordant/over-baseline.txt
 ```
 

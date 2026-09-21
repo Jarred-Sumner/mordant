@@ -453,9 +453,10 @@ fn report_libraries(cx: &LateContext<'_>, ws: &Workspace, own: &str) {
     if !silent.is_empty() {
         cx.sess().dcx().warn(format!(
             "mordant: `unused_pub` did not judge the workspace's libraries: {} left no \
-             record of what they use; remove `{}` and dylint's target directory, then run again",
+             record of what they use; remove `{}`, which holds those records and the build \
+             `cargo mordant` reuses, then run again",
             crate::baseline::join(&silent, "and"),
-            ws.dir.display(),
+            ws.dir.parent().unwrap_or(&ws.dir).display(),
         ));
         return;
     }
