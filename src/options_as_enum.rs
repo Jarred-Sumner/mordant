@@ -117,7 +117,10 @@ impl<'tcx> LateLintPass<'tcx> for OptionsAsEnum {
     }
 
     fn check_crate_post(&mut self, cx: &LateContext<'tcx>) {
-        for (did, facts) in &self.structs {
+        let mut structs: Vec<(&DefId, &Facts)> = self.structs.iter().collect();
+        // Deterministic order: findings are compared against a baseline.
+        structs.sort_by_key(|(did, _)| cx.tcx.def_span(**did));
+        for (did, facts) in structs {
             if facts.unprovable || facts.sites.len() < 2 {
                 continue;
             }
