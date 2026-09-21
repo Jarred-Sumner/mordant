@@ -81,9 +81,9 @@ pub const GROUPS: &[(&str, &[&str])] = &[
     ("custom", &["forbidden_reach"]),
 ];
 
-/// The group's name to rustc. Every library dylint loads shares one flat
-/// namespace of lints and groups with rustc itself, and a bare `errors` or
-/// `naming` in it would read as anyone's, so the id carries the pack's name.
+/// The group's name to rustc. rustc keeps every lint and group, its own and
+/// every tool's, in one flat namespace, and a bare `errors` or `naming` in it
+/// would read as anyone's, so the id carries the pack's name.
 pub fn group_id(group: &str) -> String {
     format!("mordant_{group}")
 }

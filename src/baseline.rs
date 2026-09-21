@@ -2,7 +2,7 @@
 //! (lint, file); runs suppress up to that many findings and surface only the
 //! overflow, so mordant can gate CI on a brownfield codebase from day one.
 //!
-//! Regeneration: `MORDANT_BASELINE_WRITE=1 cargo dylint --all` emits nothing
+//! Regeneration: `MORDANT_BASELINE_WRITE=1 cargo mordant` emits nothing
 //! and rewrites each compiled crate's section instead. Sections are keyed by
 //! crate so parallel rustc processes never clobber another crate's entries;
 //! the file itself is serialized with an exclusive file lock.

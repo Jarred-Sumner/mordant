@@ -15,8 +15,6 @@ extern crate rustc_mir_dataflow;
 extern crate rustc_session;
 extern crate rustc_span;
 
-dylint_linting::dylint_library!();
-
 use rustc_data_structures::sync;
 
 mod adt_facts;
@@ -53,13 +51,13 @@ mod parallel_bools;
 mod parallel_params;
 mod parallel_vecs;
 mod param_wider_than_callers;
+pub mod protocol;
 mod reimplemented_helper;
 mod return_wider_than_body;
 mod runtime_typestate;
 mod same_match_twice;
 mod sentinel_integer;
 mod some_still_unchecked;
-mod source_rev;
 mod stale_across_reentry;
 mod stale_panic_message;
 mod stale_safety_comment;
@@ -87,9 +85,9 @@ mod wildcard_over_own_enum;
 /// it may set — so grouping them into sub-structs would rename user-visible
 /// keys to satisfy a lint about internal invariants.
 ///
-/// `dylint_linting::config_or_default` returns `Default` when the linted
-/// workspace has no `dylint.toml`; the container-level `serde(default)`
-/// fills any omitted key from it too.
+/// `register_lints` uses `Default` when the linted workspace has no
+/// `dylint.toml` or the file has no `[mordant]` table; the container-level
+/// `serde(default)` fills any omitted key from it too.
 #[derive(Default, serde::Deserialize)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
@@ -214,12 +212,16 @@ pub struct MordantConfig {
     pub generic_body_not_generic_min_instantiations: usize = 2,
 }
 
-#[expect(clippy::no_mangle_with_rust_abi)]
-#[unsafe(no_mangle)]
+/// Called by `mordant-driver` once per compiler session, before any lint
+/// runs.
 pub fn register_lints(sess: &rustc_session::Session, s: &mut rustc_lint::LintStore) {
-    dylint_linting::init_config(sess);
-    source_rev::register(s);
-    let config: MordantConfig = dylint_linting::config_or_default(env!("CARGO_PKG_NAME"));
+    let config = match std::env::var(protocol::CONFIG_ENV) {
+        Ok(text) => parse_config(&text).unwrap_or_else(|err| {
+            sess.dcx()
+                .fatal(format!("mordant: could not read dylint.toml: {err}"))
+        }),
+        Err(_) => MordantConfig::default(),
+    };
     let config: &'static MordantConfig = Box::leak(Box::new(config));
     baseline::setup(&config.baseline);
     let unknown = register(config, s);
@@ -228,6 +230,24 @@ pub fn register_lints(sess: &rustc_session::Session, s: &mut rustc_lint::LintSto
             "mordant: `disabled` in dylint.toml names no lint of this pack: {}",
             unknown.join(", ")
         ));
+    }
+}
+
+/// Every lint this pack registers, whatever the configuration: a disabled
+/// lint stays registered.
+pub fn lints() -> Vec<&'static rustc_lint::Lint> {
+    let mut store = rustc_lint::LintStore::new();
+    register(Box::leak(Box::default()), &mut store);
+    store.get_lints().to_vec()
+}
+
+/// The `[mordant]` table of a `dylint.toml`. Other tables belong to other
+/// tools and are not read.
+fn parse_config(text: &str) -> Result<MordantConfig, toml::de::Error> {
+    let mut table: toml::Table = toml::from_str(text)?;
+    match table.remove(env!("CARGO_PKG_NAME")) {
+        Some(value) => value.try_into(),
+        None => Ok(MordantConfig::default()),
     }
 }
 
@@ -396,94 +416,7 @@ fn unknown_names(disabled: &[String], known: &[String]) -> Vec<String> {
         .collect()
 }
 
-#[test]
-fn ui() {
-    dylint_testing::ui::Test::src_base(env!("CARGO_PKG_NAME"), "ui")
-        .dylint_toml(
-            r#"
-            [mordant]
-            # Its fixtures are full of `pub` items nothing calls; it has its own suite.
-            disabled = ["unused_pub"]
-            key-not-identity-types = ["Span"]
-            key-not-identity-forms = ["to-bits", "ptr-cast"]
-            key-not-identity-methods = ["Value::to_raw"]
-            key-not-identity-composite = true
-            key-not-identity-fixes = ["FileId"]
-            stale-across-reentry-callees = ["Vm::run_callback", "dispatch*", "Worker::run_job", "Runner::schedule"]
-            defaulted-failure-callees = ["from_str_radix", "listed_by_config"]
-            defaulted-failure-ignored-errors = ["Pending"]
-            bool-cluster-enabled = true
-            stale-safety-comment-enabled = true
-            unchecked-input-len-enabled = true
-            parallel-params-enabled = true
-            some-still-unchecked-enabled = true
-            generic-body-not-generic-enabled = true
-
-            [[mordant.forbidden-reach]]
-            from = "hot_path"
-            never = ["std::vec::Vec::push"]
-
-            [[mordant.forbidden-reach]]
-            from = "two_bans"
-            never = ["std::vec::Vec::push", "Option::expect"]
-
-            [[mordant.forbidden-reach]]
-            from = "one_ban_twice"
-            never = ["std::vec::Vec::push"]
-
-            [[mordant.forbidden-reach]]
-            from = "index_root"
-            never = ["panic_bounds_check"]
-
-            [[mordant.forbidden-reach]]
-            from = "add_overflow_root"
-            never = ["panic_const_add_overflow"]
-
-            [[mordant.forbidden-reach]]
-            from = "div_zero_root"
-            never = ["panic_const_div_by_zero"]
-
-            [[mordant.forbidden-reach]]
-            from = "rem_zero_root"
-            never = ["panic_const_rem_by_zero"]
-
-            [[mordant.forbidden-reach]]
-            from = "neg_overflow_root"
-            never = ["panic_const_neg_overflow"]
-
-            # The two controls: a live ban on a family their bodies do not
-            # reach, so a silent run here is the lint discriminating and not
-            # the rule failing to resolve.
-            [[mordant.forbidden-reach]]
-            from = "wrong_family_root"
-            never = ["panic_const_add_overflow"]
-
-            [[mordant.forbidden-reach]]
-            from = "no_assert_root"
-            never = ["panic_const_add_overflow"]
-            "#,
-        )
-        .run();
-}
-
-/// The `ui` fixtures for the opt-in lints run with their keys on; these
-/// re-run the same shapes with the keys absent and expect nothing.
-#[test]
-fn ui_opt_in_lints_are_off_without_their_key() {
-    dylint_testing::ui::Test::src_base(env!("CARGO_PKG_NAME"), "ui_off")
-        .dylint_toml("[mordant]\ndisabled = [\"unused_pub\"]\n")
-        .run();
-}
-
-/// `unused_pub` alone, since every other fixture is made of unused items.
-#[test]
-fn ui_unused_pub() {
-    dylint_testing::ui::Test::src_base(env!("CARGO_PKG_NAME"), "ui_unused_pub")
-        .dylint_toml("[mordant]\n")
-        .run();
-}
-
-/// `config_or_default` returns `Default` when the linted workspace has no
+/// `register_lints` uses `Default` when the linted workspace has no
 /// `dylint.toml`. A threshold that lost its `= N` would default to 0, which
 /// turns `wildcard_over_own_enum` off (`n > 0` for every enum) and makes
 /// `options_as_enum` consider every struct.
@@ -549,6 +482,21 @@ fn config_disabled_parses_and_defaults_empty() {
         toml::from_str("disabled = [\"runtime_typestate\", \"lock_order\"]\n")
             .expect("disabled parses");
     assert_eq!(parsed.disabled, ["runtime_typestate", "lock_order"]);
+}
+
+/// `dylint.toml` holds one table per tool; only `[mordant]` is ours, and a
+/// file without it configures nothing.
+#[test]
+fn parse_config_reads_only_the_mordant_table() {
+    let parsed =
+        parse_config("[other_tool]\nanything = 1\n\n[mordant]\nbool-cluster-min-bools = 5\n")
+            .expect("a file with a valid [mordant] table parses");
+    assert_eq!(parsed.bool_cluster_min_bools, 5);
+    let absent = parse_config("[other_tool]\nanything = 1\n").expect("no [mordant] table parses");
+    assert_eq!(absent, MordantConfig::default());
+    let err = parse_config("[mordant]\nwildcard-local-enum-max-variants = 64\n")
+        .expect_err("an unknown key inside [mordant] is still an error");
+    assert!(err.to_string().contains("wildcard-local-enum-max-variants"));
 }
 
 #[test]
